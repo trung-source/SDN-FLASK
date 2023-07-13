@@ -1,0 +1,162 @@
+{% extends "base.html" %}
+
+{% block title %} Home {% endblock %}
+
+
+{% block content %} 
+
+
+<h1 align='center' class="text-info">Bandwidth Demand</h1>
+<br>
+
+
+<form method="POST">
+    
+    <h3 align='center' class="text-primary card-header">Querry paths from source host to destiantion host</h3>
+    <br>
+    <div class="form-row">
+        <div class="form-group col-md-6">
+            <label for="source" class="font-alt font-size-14 text-info">Source IP:</label>
+            
+            <input type="text" name="src_ip_find" class="form-input" value="{{ src_ip_find }}" placeholder="xxx.xxx.xxx.xxx">
+        </div>
+        <div class="form-group col-md-6">
+            <label for="destiantion" class="font-alt font-size-14 text-info">Destination IP:</label>
+            <input type="text" name="dst_ip_find" class="form-input" value="{{ dst_ip_find }}" placeholder="xxx.xxx.xxx.xxx">
+        </div>
+    </div>
+    <div class="form-group table-responsive">
+        {% if path_pw %}
+        {% set paths = path_pw["paths"] %}
+        {% set pw = path_pw["pw"] %}
+        <table class="table">
+            <thead>
+              <tr>
+                <th scope="col">#</th>
+                <th scope="col">Source IP</th>
+                <th scope="col">Destiantion IP</th>
+                <th scope="col">Path</th>
+                <th scope="col">Reserve bandwidth from host to host</th>
+              </tr>
+            </thead>
+            <tbody>
+            {% for path in paths %}
+              <tr>
+                <th scope="row"> {{ loop.index }}</th>
+                <th scope="row"> {{ src_ip_find }}</th>
+                <th scope="row"> {{ dst_ip_find }}</th>
+                <td>{{ path }}</td>
+                <td>{{ pw[loop.index0] }}</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+          {% endif %}
+    </div>
+    
+
+    <div align="center">
+        <button type="submit" id="form-submit" name="form-submit" class='btn btn-primary'>
+            Submit
+        </button>
+    </div>
+    
+</form>
+
+    <br><br>
+    <form method="POST" class="card">
+
+        <h3 align='center' class="text-primary card-header">Apply Bandwidth Demand</h3>
+
+        <label for="checkin" class="font-alt font-size-14 px-0 text-danger">Node Y </label>
+        <input type="text" name="node" class="px-0 box" placeholder="alpha">
+
+        <label for="checkin" class="font-alt font-size-12 px-2 text-info">Umin</label>
+
+        <input type="text" name="umin" class="box" value="" placeholder="Umin">
+
+        <label for="checkin" class="font-alt font-size-12 px-2 text-info">Alpha</label>
+
+        <input type="text" name="alpha" class="box" value="" placeholder="alpha">
+        <br><br>
+        <div align="center">
+            <br>
+            <button type="submit" id="form2-submit" name="form2-submit" class='btn btn-primary'>
+                Submit
+            </button>
+        </div>
+    </form>
+
+    <br> <br> <br>
+<h1 align='center'>Topology Information</h1>
+<h2>Switch Information</h2>
+<div class="row card">
+    <ul class="font-awesome">All Switches in Topology: 
+        <div class="form-group table-responsive">
+            {% if switch_list %}
+            {% set switches = switch_list["sw_list"] %}
+            {% set ports = switch_list["port_list"] %}
+            <table class="table">
+                <thead>
+                  <tr>
+                    <th scope="col">#</th>
+                    <th scope="col">Switches</th>
+                    <th scope="col">Ports in switch</th>
+                  </tr>
+                </thead>
+                <tbody>
+                {% for sw in switches %}
+                  <tr>
+                    <th scope="row"> {{ loop.index }}</th>
+                    <td>{{ sw }}</td>
+                    <td>{{ ports[loop.index0] }}</td>
+                  </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+              {% endif %}
+        </div>
+    </ul>
+    
+</div>
+
+<br><br>
+<h2>Host Information</h2>
+<div class="row card">
+    <ul class="font-awesome">All host discovered: 
+        <div class="form-group table-responsive">
+            {% if host_list %}
+            {% set hosts = host_list["host"] %}
+            {% set dpids = host_list["dpid"] %}
+            {% set ips = host_list["ip"] %}
+            {% set inports = host_list["inport"] %}
+            <table class="table">
+                <thead>
+                  <tr>
+                    <th scope="col">#</th>
+                    <th scope="col">Host</th>
+                    <th scope="col">IP</th>
+                    <th scope="col">Inport</th>
+                    <th scope="col">Switch ID</th>
+                  </tr>
+                </thead>
+                <tbody>
+                {% for host in hosts %}
+                  <tr>
+                    <th scope="row"> {{ loop.index }}</th>
+                    <td>{{ host }}</td>
+                    <td>{{ ips[loop.index0] }}</td>
+                    <td>{{ inports[loop.index0] }}</td>
+                    <td>{{ dpids[loop.index0] }}</td>
+                  </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+              {% endif %}
+        </div>
+    </ul>
+    
+</div>
+
+<br><br><br><br>
+{% endblock %}
