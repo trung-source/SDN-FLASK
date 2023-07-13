@@ -26,12 +26,14 @@ from ryu.app.wsgi import WSGIApplication
 from ryu.lib import dpid as dpid_lib
 
 simple_switch_instance_name = 'simple_switch_api_app'
-url = '/simpleswitch/mactable/{dpid}'
+
+all_switch_url = '/simpleswitch/allswitch/'
 switch_url = '/simpleswitch/switch/{dpid}'
 vni_url = '/simpleswitch/vni/'
 request_url = '/simpleswitch/request/'
 path_url = '/simpleswitch/path/'
-
+path_find_url = '/simpleswitch/pathfind/'
+host_url = '/simpleswitch/host/'
 
 class SimpleSwitchRest13(Controller_IP.ProjectController):
 
@@ -51,12 +53,23 @@ class SimpleSwitchRest13(Controller_IP.ProjectController):
     #     self.switches[datapath.id] = datapath
     #     self.mac_to_port.setdefault(datapath.id, {})
     
-    
+    def get_switch_all(self):    
+        resp = {}
+        sw_list = sorted(self.switches)
+        port_list = []
+        for sw in sw_list:
+            port_list.append(list(self.sw_port[sw].values()))
+        self.logger.info("sw_list: %s\nport_list: %s"%(sw_list,port_list))
+        resp["sw_list"] = sw_list
+        resp["port_list"] = port_list
+        return resp, True
+        
     def get_switch(self,node=None):
         if node:
             tmp = int(node)
             if tmp not in self.switches:
-                return "Cant find switch %s. All switches: %s" % (node,self.switches)
+                resp = "Cant find switch %s. All switches: %s" % (node,sorted(self.switches))
+                return resp , False
             resp = {}
             # datapath = list(self.datapath_list[tmp])
             adjacency = list(self.adjacency[tmp].keys())
@@ -70,18 +83,37 @@ class SimpleSwitchRest13(Controller_IP.ProjectController):
                              'host':host            
                           }
             self.logger.info("RESP: %s" % resp)
-            return resp
+            return resp , True
         
-        return self.switches
-            
-            
-    def set_vni(self, entry):
-        self.vni= entry['vni'] 
-        return self.vni
+        return sorted(self.switches), True
     
+    def get_host(self):
+        resp = {}
+        resp['host'] = []
+        resp['dpid'] = []
+        resp['inport'] = []
+        resp['ip'] = []
+        for host in self.hosts.keys():
+            resp['host'].append(host)
+            sw = self.hosts[host][0]
+            port = self.hosts[host][1]
+            port_name = self.sw_port[sw][port]
+            ip = self.get_ip_from_host(host)
+            
+            resp['dpid'].append(sw)   
+            resp['inport'].append(port_name)
+            resp['ip'].append(ip)
+            
+        self.logger.info("RESP:%s"%resp)
+        
+        return resp, True
+        
+            
+  
     def set_request(self, entry):
         # self.logger.info("ITS GO IN HERE")
         resp = ""
+        cond = False
         DO_SET_REQUEST = True
         for id in self.request_table:
             if self.request_table[id]['vni'] != entry["vni"]:
@@ -109,51 +141,44 @@ class SimpleSwitchRest13(Controller_IP.ProjectController):
             #                                     'dst_ip':entry['dst_ip'],}
             # self.request_id += 1
             self.logger.info("New Request")
-            resp = self.handle_request(entry['request'],entry['path'],entry['src_ip'],entry['dst_ip'],entry['vni'])
+            resp,cond = self.handle_request(entry['request'],entry['path'],entry['src_ip'],entry['dst_ip'],entry['vni'])
         else:
             self.logger.info("Duplicate Request")
             resp = "Duplicate Request"
         
         # self.logger.info("DONE MAP")
         
-        return resp
+        return resp, cond
     
     
     def set_path(self, entry):
         # self.logger.info("ITS GO IN HERE")
-        resp = ""
-        resp = self.handle_path(entry['path'],entry['src_ip'],entry['dst_ip'],entry['vni'])
+        resp,cond = self.handle_path(entry['path'],entry['src_ip'],entry['dst_ip'],entry['vni'])
        
         # self.logger.info("DONE MAP")
         
-        return resp
+        return resp,cond
 
-
-    def set_mac_to_port(self, dpid, entry):
-        mac_table = self.mac_to_port.setdefault(dpid, {})
-        datapath = self.switches.get(dpid)
-
-        entry_port = entry['vni']
-        entry_mac = entry['mac']
-
-        if datapath is not None:
-            parser = datapath.ofproto_parser
-            if entry_port not in mac_table.values():
-
-                for mac, port in mac_table.items():
-
-                    # from known device to new device
-                    actions = [parser.OFPActionOutput(entry_port)]
-                    match = parser.OFPMatch(in_port=port, eth_dst=entry_mac)
-                    self.add_flow(datapath, 1, match, actions)
-
-                    # from new device to known device
-                    actions = [parser.OFPActionOutput(port)]
-                    match = parser.OFPMatch(in_port=entry_port, eth_dst=mac)
-                    self.add_flow(datapath, 1, match, actions)
-
-                mac_table.update({entry_mac: entry_port})
-        return mac_table
+    def set_path_find(self, entry):
+        # self.logger.info("ITS GO IN HERE")
+        src_ip = entry['src_ip']
+        dst_ip = entry['dst_ip']
+        if src_ip not in self.arp_table.keys():
+            return "Can`t find source IP:", False
+        if dst_ip not in self.arp_table.keys():
+            return "Can`t find destination IP", False
+        mac_src = self.arp_table[src_ip]
+        mac_dst = self.arp_table[dst_ip]
+        
+        h1 = self.hosts[mac_src]
+        h2 = self.hosts[mac_dst]
+        paths,pw = self.get_optimal_paths_qos(h1[0], h2[0],h1[1],h2[1])
+        resp = {}
+        resp['paths'] = paths
+        resp['pw'] = pw
+        # self.logger.info("DONE paths:%s\npw:%s"%(paths,pw))
+        
+        return resp, True
 
 
 class SimpleSwitchController(ControllerBase):
@@ -162,21 +187,17 @@ class SimpleSwitchController(ControllerBase):
         super(SimpleSwitchController, self).__init__(req, link, data, **config)
         self.simple_switch_app = data[simple_switch_instance_name]
 
-    @route('simpleswitch', url, methods=['GET'],
-           requirements={'dpid': dpid_lib.DPID_PATTERN})
-    def list_mac_table(self, req, **kwargs):
+
+    @route('simpleswitch', all_switch_url, methods=['GET'])
+    def list_switches_all(self, req, **kwargs):
 
         simple_switch = self.simple_switch_app
-        dpid = kwargs['dpid']
 
-        if dpid not in simple_switch.mac_to_port:
-            return Response(status=404)
-
-        mac_table = simple_switch.mac_to_port.get(dpid, {})
-        body = json.dumps(mac_table)
-        return Response(content_type='application/json', text=body)
-
-        
+        get_switch,cond = simple_switch.get_switch_all()
+        body = json.dumps(get_switch)
+        if cond == True:
+            return Response(content_type='application/json', text=body)
+        return Response(status=500,content_type='application/json', text=body)
     
     @route('simpleswitch', switch_url, methods=['GET'])
     def list_switches(self, req, **kwargs):
@@ -184,29 +205,24 @@ class SimpleSwitchController(ControllerBase):
         simple_switch = self.simple_switch_app
         dpid = kwargs['dpid']
 
-        get_switch = simple_switch.get_switch(dpid)
+        get_switch,cond = simple_switch.get_switch(dpid)
         body = json.dumps(get_switch)
-        return Response(content_type='application/json', text=body)
+        if cond == True:
+            return Response(content_type='application/json', text=body)
+        return Response(status=500,content_type='application/json', text=body)
     
-    
-    
-    @route('simpleswitch', vni_url, methods=['PUT'])
-    def put_vni(self, req, **kwargs):
+    @route('simpleswitch', host_url, methods=['GET'])
+    def list_host(self, req, **kwargs):
 
         simple_switch = self.simple_switch_app
-        try:
-            new_entry = req.json if req.body else {}
-        except ValueError:
-            raise Response(status=400)
+        # dpid = kwargs['dpid']
 
-        try:
-            mac_table = simple_switch.set_vni(new_entry)
-            body = json.dumps(mac_table)
+        get_host,cond = simple_switch.get_host()
+        body = json.dumps(get_host)
+        if cond == True:
             return Response(content_type='application/json', text=body)
-        except Exception as e:
-            return Response(status=500)
-        
-        
+        return Response(status=500,content_type='application/json', text=body)
+    
         
     @route('simpleswitch', request_url, methods=['PUT'])
     def put_request(self, req, **kwargs):
@@ -218,9 +234,11 @@ class SimpleSwitchController(ControllerBase):
             raise Response(status=400)
 
         # try:
-        resp = simple_switch.set_request(new_entry)
+        resp,cond = simple_switch.set_request(new_entry)
         
         body = json.dumps(resp)
+        if cond == False:
+            return Response(status=500,content_type='application/json', text=body)
         return Response(content_type='application/json', text=body)
         # except Exception as e:
         #         return Response(status=500)
@@ -236,14 +254,33 @@ class SimpleSwitchController(ControllerBase):
             raise Response(status=400)
 
         try:
-            resp = simple_switch.set_path(new_entry)
+            resp,cond = simple_switch.set_path(new_entry)
             
             body = json.dumps(resp)
+            if cond == False:
+                return Response(status=500,content_type='application/json', text=body)
             return Response(content_type='application/json', text=body)
         except Exception as e:
                 return Response(status=500)
             
-            
+    @route('simpleswitch', path_find_url, methods=['PUT'])
+    def put_path_find(self, req, **kwargs):
+
+        simple_switch = self.simple_switch_app
+        try:
+            new_entry = req.json if req.body else {}
+        except ValueError:
+            raise Response(status=400)
+
+        try:
+            resp,cond = simple_switch.set_path_find(new_entry)
+            body = json.dumps(resp)
+            if cond == False:
+                return Response(status=500,content_type='application/json', text=body)
+            return Response(content_type='application/json', text=body)
+        except Exception as e:
+                return Response(status=500)
+                   
     # @route('simpleswitch', path_url, methods=['GET'])
     # def list_request(self, req, **kwargs):
 
