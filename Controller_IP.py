@@ -1423,19 +1423,19 @@ class ProjectController(app_manager.RyuApp):
         if not request.get('max-rate') and not request.get('min-rate'):
             resp = "Wrong request"
             self.logger.info(resp)
-            return resp
+            return resp, False
 
         src = path[0]
         dst = path[-1]
         if src_ip not in self.arp_table.keys():
             resp = "Host IP not found: %s" % src_ip
             self.logger.info(resp)
-            return resp
+            return resp, False
         
         if dst_ip not in self.arp_table.keys():
             resp = "Host IP not found: %s" % dst_ip
             self.logger.info(resp)
-            return resp
+            return resp, False
         
         
         mac_src = self.arp_table[src_ip]
@@ -1449,7 +1449,7 @@ class ProjectController(app_manager.RyuApp):
         if path not in paths:
             resp = "Can`t find path: Path seem to be not correct"
             self.logger.info(resp)
-            return resp
+            return resp, False
         
         
         if request.get('max-rate'):
@@ -1457,12 +1457,12 @@ class ProjectController(app_manager.RyuApp):
             if int(request.get('max-rate')) > DEFAULT_BW:
                 resp = "max-rate exceeds link bandwidth"
                 self.logger.info(resp)
-                return resp
+                return resp, False
             
             if int(request.get('max-rate')) < 0 :
                 resp = "request cant be negative"
                 self.logger.info(resp)
-                return resp
+                return resp, False
         
         
         if not request.get('min-rate'):
@@ -1472,19 +1472,19 @@ class ProjectController(app_manager.RyuApp):
                                                 'dst_ip':dst_ip}
             self.request_id += 1
             self.accept_demand(request,path,h2[1],vni,src_ip,dst_ip)      
-            resp = "OK"  
-            return resp
+            resp = "Request accepted"  
+            return resp, True
         
         if request.get('max-rate'):
             if int(request.get('min-rate')) > int(request.get('max-rate')):
                 resp = "Invalid min request: Minrate > Maxrate"
                 self.logger.info(resp)
-                return resp
+                return resp, False
             
         if int(request.get('min-rate')) < 0 :
             resp = "request cant be negative"
             self.logger.info(resp)
-            return resp
+            return resp, False
             
         index = 0
         min_rate = int(request.get('min-rate'))
@@ -1498,7 +1498,7 @@ class ProjectController(app_manager.RyuApp):
             if avai_bw <= min_rate:
                 resp = "Reject: Minrate %s >= available bw: %s",min_rate,avai_bw
                 self.logger.info(resp)
-                return resp
+                return resp, False
 
         for i in range(len(path)-1):
             s1 = path[i]
@@ -1513,8 +1513,8 @@ class ProjectController(app_manager.RyuApp):
                                             'dst_ip':dst_ip}
         self.request_id += 1
         self.accept_demand(request,path,h2[1],vni,src_ip,dst_ip)      
-        resp = "OK"  
-        return resp
+        resp = "Request accepted"  
+        return resp, True
 
                     
         # self.queue_config.append(request)
@@ -1591,12 +1591,12 @@ class ProjectController(app_manager.RyuApp):
         if src_ip not in self.arp_table.keys():
             self.logger.info("Host IP not found: %s", src_ip)
             resp = "Host IP not found: %s" % src_ip
-            return resp
+            return resp, False
         
         if dst_ip not in self.arp_table.keys():
             self.logger.info("Host IP not found: %s", dst_ip)
             resp = "Host IP not found: %s" % dst_ip
-            return resp
+            return resp, False
         
         
         mac_src = self.arp_table[src_ip]
@@ -1611,10 +1611,10 @@ class ProjectController(app_manager.RyuApp):
         if path not in paths:
             self.logger.info("Can`t find path: Path seem to be not correct")
             resp = "Can`t find path: Path seem to be not correct"
-            return resp     
+            return resp, False     
         self.accept_path(path,dst_port,vni,src_ip,dst_ip)
-        resp = "OK"
-        return resp
+        resp = "Path accepted"
+        return resp, True
       
             
     @set_ev_cls(ofp_event.EventOFPPortStatsReply, MAIN_DISPATCHER)
@@ -1753,6 +1753,10 @@ class ProjectController(app_manager.RyuApp):
             # 1 host has only 1 IP
             ip.append(a[0])
         return ip     
+    
+    def get_ip_from_host(self,host):
+        return [k for k, v in self.arp_table.items() if v == host]
+    
     
     @set_ev_cls(ofp_event.EventOFPPortStatus, MAIN_DISPATCHER)
     def port_status_handler(self, ev):
