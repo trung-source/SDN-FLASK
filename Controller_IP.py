@@ -1338,6 +1338,8 @@ class ProjectController(app_manager.RyuApp):
         datapath = self.datapath_list[node]
         ofp = datapath.ofproto
         ofp_parser = datapath.ofproto_parser
+        actions = [ofp_parser.OFPActionSetQueue(queue_id)]
+        actions.append(ofp_parser.OFPActionOutput(out_port))
         
         
         match_arp = ofp_parser.OFPMatch(
@@ -1367,21 +1369,21 @@ class ProjectController(app_manager.RyuApp):
                         ipv4_src=src_ip, 
                         ipv4_dst=dst_ip
                     )
-         
-        match_vni = ofp_parser.OFPMatch(
-                        eth_type=0x0800, 
-                        ip_proto=17,
-                        ipv4_src=src_ip, 
-                        ipv4_dst=dst_ip,
-                        udp_dst=4789,
-                        tunnel_id = vni
-                    )
+        if vni is not None:
+            match_vni = ofp_parser.OFPMatch(
+                            eth_type=0x0800, 
+                            ip_proto=17,
+                            ipv4_src=src_ip, 
+                            ipv4_dst=dst_ip,
+                            udp_dst=4789,
+                            tunnel_id = int(vni)
+                        )
+            self.add_flow(datapath, 12, match_vni, actions,IDLE_TIMEOUT)
+            
         
     
       
                     
-        actions = [ofp_parser.OFPActionSetQueue(queue_id)]
-        actions.append(ofp_parser.OFPActionOutput(out_port))
         
         
         self.add_flow(datapath, 2, match_icmp, actions,IDLE_TIMEOUT)
@@ -1390,7 +1392,6 @@ class ProjectController(app_manager.RyuApp):
         self.add_flow(datapath, 10, match_tcp, actions,IDLE_TIMEOUT)
         self.add_flow(datapath, 10, match_udp, actions,IDLE_TIMEOUT)
         
-        self.add_flow(datapath, 12, match_vni, actions,IDLE_TIMEOUT)
                     
         self.add_flow(datapath, 1, match_arp , actions,IDLE_TIMEOUT)
         
@@ -1405,17 +1406,42 @@ class ProjectController(app_manager.RyuApp):
             e1_name = self.sw_port[s1][e1]
 
             self.queue_config[e1_name].append(request)
+            
+            # Install qos and queue in ovsdb of ovs
             self.configure_qos(e1_name)
             queue_id = len(self.queue_config[e1_name])-1
+            
+            # Install flow qos in ovs
             self.mod_qos_paths(s1,vni,src_ip,dst_ip,e1,queue_id)
+            
+            # Install in OVNDB
+            # self.install_ovn(self,queue_id,request)
             
         dst_p_name = self.sw_port[path[-1]][dst_port]
         self.queue_config.setdefault(dst_port,[])
         self.queue_config[dst_p_name].append(request)
+        
         queue_id = len(self.queue_config[dst_p_name])-1
         self.configure_qos(dst_p_name)
         self.mod_qos_paths(path[-1],vni,src_ip,dst_ip,dst_port,queue_id)
-        
+        # Install in OVNDB
+        # self.install_ovn(self,queue_id,request)
+            
+    def check_demand(self,path,vni,src_ip,dst_ip):
+        check_req = True
+        for accept_req in self.request_table.values():
+            if accept_req['path'] != path:
+                continue
+            if accept_req['vni'] != vni:
+                continue
+            if accept_req['src_ip'] != src_ip:
+                continue
+            if accept_req['dst_ip'] != dst_ip:
+                continue
+    
+            check_req = False
+            
+        return check_req
     
     def handle_request(self,request,path,src_ip,dst_ip,vni):
         self.logger.info("RES: %s"%request)
@@ -1466,11 +1492,18 @@ class ProjectController(app_manager.RyuApp):
         
         
         if not request.get('min-rate'):
+            check = self.check_demand(path,vni,src_ip,dst_ip)
             self.request_table.setdefault(self.request_id,{})
             self.request_table[self.request_id]={'request':request,'path':path,
                                                 'vni':vni,'src_ip':src_ip,
                                                 'dst_ip':dst_ip}
             self.request_id += 1
+            if check == False:
+                # Need to modify old queue/qos
+                resp = "Request exist for the same type traffic"
+                return resp, False
+            
+            
             self.accept_demand(request,path,h2[1],vni,src_ip,dst_ip)      
             resp = "Request accepted"  
             return resp, True
@@ -1500,6 +1533,13 @@ class ProjectController(app_manager.RyuApp):
                 self.logger.info(resp)
                 return resp, False
 
+        
+        check = self.check_demand(path,vni,src_ip,dst_ip)
+        if check == False:
+            # Need to modify old queue/qos
+            resp = "Request exist for the same type traffic"
+            return resp, False
+        
         for i in range(len(path)-1):
             s1 = path[i]
             s2 = path[i+1]
@@ -1507,11 +1547,15 @@ class ProjectController(app_manager.RyuApp):
             self.min_queue_config.setdefault(s1,{})
             self.min_queue_config[s1].setdefault(e1,0)
             self.min_queue_config[s1][e1]+=min_rate
+               
         self.request_table.setdefault(self.request_id,{})
         self.request_table[self.request_id]={'request':request,'path':path,
                                             'vni':vni,'src_ip':src_ip,
                                             'dst_ip':dst_ip}
         self.request_id += 1
+        
+        
+            
         self.accept_demand(request,path,h2[1],vni,src_ip,dst_ip)      
         resp = "Request accepted"  
         return resp, True
@@ -1523,6 +1567,7 @@ class ProjectController(app_manager.RyuApp):
         datapath = self.datapath_list[node]
         ofp = datapath.ofproto
         ofp_parser = datapath.ofproto_parser
+        actions = [ofp_parser.OFPActionOutput(out_port)]
       
         # match = ofp_parser.OFPMatch(in_port=1, eth_dst='ff:ff:ff:ff:ff:ff')
         match_arp = ofp_parser.OFPMatch(
@@ -1552,18 +1597,19 @@ class ProjectController(app_manager.RyuApp):
                         ipv4_src=src_ip, 
                         ipv4_dst=dst_ip
                     )
-         
-        match_vni = ofp_parser.OFPMatch(
-                        eth_type=0x0800, 
-                        ip_proto=17,
-                        ipv4_src=src_ip, 
-                        ipv4_dst=dst_ip,
-                        udp_dst=4789,
-                        tunnel_id = vni
-                        
+        
+        if vni is not None:
+            match_vni = ofp_parser.OFPMatch(
+                            eth_type=0x0800, 
+                            ip_proto=17,
+                            ipv4_src=src_ip, 
+                            ipv4_dst=dst_ip,
+                            udp_dst=4789,
+                            tunnel_id = int(vni)
+                            
                     )
+            self.add_flow(datapath, 12, match_vni, actions,IDLE_TIMEOUT)
                     
-        actions = [ofp_parser.OFPActionOutput(out_port)]
 
         
         self.add_flow(datapath, 2, match_icmp, actions,IDLE_TIMEOUT)        
@@ -1571,7 +1617,6 @@ class ProjectController(app_manager.RyuApp):
         self.add_flow(datapath, 10, match_tcp, actions,IDLE_TIMEOUT)
         self.add_flow(datapath, 10, match_udp, actions,IDLE_TIMEOUT)
         
-        self.add_flow(datapath, 12, match_vni, actions,IDLE_TIMEOUT)
                     
         self.add_flow(datapath, 1, match_arp , actions,IDLE_TIMEOUT)
         
