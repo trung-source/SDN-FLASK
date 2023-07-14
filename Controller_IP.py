@@ -270,12 +270,8 @@ class ProjectController(app_manager.RyuApp):
         e1 = self.adjacency[s1][s2]
         e2 = self.adjacency[s2][s1]
         
-        
-        if not self.min_queue_config.setdefault(s1,{}) or not self.min_queue_config.setdefault(s2,{}):
-            # bl = min(self.bandwidths[s1][e1], self.bandwidths[s2][e2])
-            
-            return DEFAULT_BW
-    
+        self.min_queue_config.setdefault(s2,{})
+        self.min_queue_config.setdefault(s2,{})
             # bl = min(self.tx_byte_int[s1][e1], self.tx_byte_int[s2][e2])
         self.min_queue_config[s1].setdefault(e1,0)
         self.min_queue_config[s2].setdefault(e2,0)
@@ -288,18 +284,11 @@ class ProjectController(app_manager.RyuApp):
         '''
         Get the bw availbe between host and switch
         '''
-        
-        
-        if not self.min_queue_config.setdefault(dpid,{}):
-            # bl = min(self.bandwidths[s1][e1], self.bandwidths[s2][e2])
-            ew = DEFAULT_BW
-
-            
-        else:
-            self.min_queue_config[dpid].setdefault(port,0)
-            # VM send 1 traffic to switch port but many traffic from other VMs 
-            # come from 1 switch port
-            ew = DEFAULT_BW-self.min_queue_config[dpid][port]
+        self.min_queue_config.setdefault(dpid,{})
+        self.min_queue_config[dpid].setdefault(port,0)
+        # VM send 1 traffic to switch port but many traffic from other VMs 
+        # come from 1 switch port
+        ew = DEFAULT_BW-self.min_queue_config[dpid][port]
         return ew
 
     def get_path_cost(self, path,first_port,last_port):
@@ -1547,7 +1536,9 @@ class ProjectController(app_manager.RyuApp):
             self.min_queue_config.setdefault(s1,{})
             self.min_queue_config[s1].setdefault(e1,0)
             self.min_queue_config[s1][e1]+=min_rate
-               
+            
+        self.min_queue_config[path[-1]][h2[1]]+=min_rate
+        
         self.request_table.setdefault(self.request_id,{})
         self.request_table[self.request_id]={'request':request,'path':path,
                                             'vni':vni,'src_ip':src_ip,
