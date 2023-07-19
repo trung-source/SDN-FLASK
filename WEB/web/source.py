@@ -10,6 +10,7 @@ path_find_url = ryu_ip + '/simpleswitch/pathfind/'
 
 host_url = ryu_ip +'/simpleswitch/host/'
 
+virtual_topo =  ryu_ip + '/simpleswitch/virtualtopo/'
 
 def get_switch_all():
     url = switch_all_url
@@ -22,6 +23,10 @@ def get_switch(switch_id):
     x = requests.get(url)
     return x
 
+def get_virtual_topo():
+    url = virtual_topo
+    x = requests.get(url)
+    return x
 
 def get_host():
     url = host_url 

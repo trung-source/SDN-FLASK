@@ -24,6 +24,8 @@ from ryu.app.wsgi import Response
 from ryu.app.wsgi import route
 from ryu.app.wsgi import WSGIApplication
 from ryu.lib import dpid as dpid_lib
+from libovsdb import libovsdb
+import re
 
 simple_switch_instance_name = 'simple_switch_api_app'
 
@@ -34,6 +36,12 @@ request_url = '/simpleswitch/request/'
 path_url = '/simpleswitch/path/'
 path_find_url = '/simpleswitch/pathfind/'
 host_url = '/simpleswitch/host/'
+
+virtual_topo_url = '/simpleswitch/virtualtopo/'
+
+
+ovn_nb = 'tcp:192.168.15.165:6641'
+ovn_sb = 'tcp:192.168.15.165:6642'
 
 class SimpleSwitchRest13(Controller_IP.ProjectController):
 
@@ -53,6 +61,51 @@ class SimpleSwitchRest13(Controller_IP.ProjectController):
     #     self.switches[datapath.id] = datapath
     #     self.mac_to_port.setdefault(datapath.id, {})
     
+    def get_virtual_topo(self):
+            lswitchs = {}
+
+            sb = libovsdb.OVSDBConnection(ovn_sb, "OVN_Southbound")
+            # nb = libovsdb.OVSDBConnection(ovn_nb, "OVN_Northbound")
+
+            # tx_nb = nb.transact()
+            tx_sb = sb.transact()
+
+            # Get logical switch uuid and vni from sb
+            res = tx_sb.row_select(table = "Datapath_Binding",
+                        columns = ["_uuid","tunnel_key"],
+                        where = [])
+            try:
+                response = tx_sb.commit()
+                result = response['result'][0]['rows']
+            except:
+                return result, False
+            else:
+                for lswitch in result:
+                    attr = {}
+                    attr['vni'] = lswitch.get('tunnel_key')
+                    attr['ports'] = []
+                    uuid = lswitch.get('_uuid')[1]
+
+                    response = tx_sb.row_select(table = "Port_Binding",
+                                        columns = ['mac','tunnel_key'],
+                                        where = [["datapath", "==", ["uuid",uuid]]])
+                    try :
+                        res = tx_sb.commit()
+                        result = res['result'][0]['rows']
+                        lsps = []
+                        for lsp in result:
+                            temp = {}
+                            temp['ip'] = re.findall( r'[0-9]+(?:\.[0-9]+){3}', lsp.get('mac'))
+                            temp['tunnel_key'] = lsp.get('tunnel_key')
+                            lsps.append(temp)
+                    except:
+                        return result,False
+                    else:
+                        attr['ports'] = lsps
+                        lswitchs[lswitch.get('_uuid')[1]] = attr
+            result = list(lswitchs.values())
+            return result, True
+
     def get_switch_all(self):    
         resp = {}
         sw_list = sorted(self.switches)
@@ -208,6 +261,17 @@ class SimpleSwitchController(ControllerBase):
         self.simple_switch_app = data[simple_switch_instance_name]
 
 
+    @route('simpleswitch', virtual_topo_url, methods=['GET'])
+    def list_virtual_topo(self, req, **kwargs):
+
+        simple_switch = self.simple_switch_app
+
+        virtual_topo,cond = simple_switch.get_virtual_topo()
+        body = json.dumps(virtual_topo)
+        if cond == True:
+            return Response(content_type='application/json', text=body)
+        return Response(status=500,content_type='application/json', text=body)
+    
     @route('simpleswitch', all_switch_url, methods=['GET'])
     def list_switches_all(self, req, **kwargs):
 

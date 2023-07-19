@@ -16,6 +16,47 @@
 <h1 align='center' class="text-info">Bandwidth Demand</h1>
 <br>
 
+<form method="POST" class="card">
+    
+  <h3 align='center' class="text-primary card-header">Query virtual opology</h3>
+  <br>
+
+  <div class="form-group table-responsive">
+      {% if virutal_topo %}
+      <table class="table">
+          <thead>
+            <tr>
+              <th scope="col">VNI</th>
+              <th scope="col">IP</th>
+              <th scope="col">Tunnel key</th>
+            </tr>
+          </thead>
+          <tbody>
+          {% for ls in virutal_topo %}
+            {% set vni = ls["vni"]%}
+            {% set lsps = ls["ports"]%}
+            {% for lsp in lsps%}
+              <tr>
+                <th scope="row"> {{ vni }}</th>
+                <th scope="row"> {{ lsp["ip"] }}</th>
+                <th scope="row"> {{ lsp["tunnel_key"] }}</th>
+              </tr>
+            {% endfor %}
+          {% endfor %}
+          </tbody>
+        </table>
+        {% endif %}
+  </div>
+  
+
+  <div align="center">
+      <button type="submit" id="virtual-submit" name="virtual-submit" class='btn btn-primary'>
+          Submit
+      </button>
+  </div>
+  
+</form>
+<br>
 
 <form method="POST" class="card">
     
