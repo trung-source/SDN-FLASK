@@ -12,7 +12,7 @@ from ryu.lib.packet import ipv4
 from ryu.lib.packet import ipv6
 
 from ryu.lib.packet import tcp
-from ryu.lib.packet import udp,vxlan
+from ryu.lib.packet import udp,vxlan,geneve
 
 from ryu.lib.packet import ether_types
 from ryu.lib import dpid, mac, ip
@@ -130,7 +130,7 @@ class ProjectController(app_manager.RyuApp):
     def configure_max_qos(self,port):
         ovs_bridge = bridge.OVSBridge(self.CONF, dpid, ovsdb_server)
         self.queue_config.setdefault(port,[])
-        self.del_all_qos(port)
+        self.del_qos_all(port)
         try:
             if self.queue_config[port]:
                 ovs_bridge.set_qos(port, type='linux-hfsc',
@@ -157,13 +157,59 @@ class ProjectController(app_manager.RyuApp):
             raise ValueError(msg)
     
 
-    def del_all_qos(self,port):
-        ovs_bridge = bridge.OVSBridge(self.CONF, dpid, ovsdb_server)
-        try:
-            ovs_bridge.del_qos(port)
-        except Exception as msg:
-            raise ValueError(msg)
+    # def del_all_qos(self,port):
+    #     ovs_bridge = bridge.OVSBridge(self.CONF, dpid, ovsdb_server)
+    #     try:
+    #         ovs_bridge.del_qos(port)
+    #     except Exception as msg:
+    #         raise ValueError(msg)
         
+
+    def del_qos_all(self,port):
+        db = libovsdb.OVSDBConnection(ovsdb_server, "Open_vSwitch")
+
+        get_port = db.select(table = "Port",
+                            columns = ['_uuid',"qos"],
+                            where = [["name", "==", port]],)
+        port_qos = get_port[0]['qos']
+
+
+        get_queue = db.select(table = "QoS",
+                    columns = ['_uuid',"queues"],
+                    where = [["_uuid", "==", ["uuid",port_qos]]])
+        
+        if not get_queue:
+            # self.logger.info("Queue not ref")
+            tx = db.transact()
+            uuid = port_qos
+
+            tx.delete(table = "QoS",
+                    where = [["_uuid", "==", ["uuid",uuid]]])
+            tx.mutate(table = "Port",
+                        where = [["name", "==", port]],
+                        mutations = [tx.make_mutations("qos", "delete", {"uuid": port_qos})])
+            response = tx.commit()
+                
+            
+            return
+
+        # QOS ref delete
+        tx = db.transact()
+        uuid = port_qos
+
+        tx.delete(table = "QoS",
+                where = [["_uuid", "==", ["uuid",uuid]]])
+        tx.mutate(table = "Port",
+                    where = [["name", "==", port]],
+                    mutations = [tx.make_mutations("qos", "delete", {"uuid": port_qos})])
+        response = tx.commit()
+
+        for queue in get_queue[0]['queues']:
+            queue_uuid = queue[1][1]           
+            res = db.delete(table = "Queue",
+                            where = [["_uuid", "==", ["uuid",queue_uuid]]],
+                            referby = ["QoS", port_qos, "queues"])
+        return
 
 
     # We need to set default queue 0 with maximum bandwithd allow for testing
@@ -938,6 +984,9 @@ class ProjectController(app_manager.RyuApp):
         match = parser.OFPMatch()
         actions = [parser.OFPActionOutput(ofproto.OFPP_CONTROLLER,
                                           ofproto.OFPCML_NO_BUFFER)]
+        self.delete_all_flow(datapath,0)
+        self.delete_all_flow(datapath,1)
+
         self.add_flow(datapath, 0, match, actions)
 
 
@@ -948,13 +997,13 @@ class ProjectController(app_manager.RyuApp):
         for p in ev.msg.body:
             # self.bandwidths[switch.id][p.port_no] = p.curr_speed
             self.bandwidths[switch.id][p.port_no] = DEFAULT_BW
-            if p.curr_speed > 0 :
-                port = p.name.decode("utf-8")
+            # if p.curr_speed > 0 :
+            #     port = p.name.decode("utf-8")
                 # self.logger.info("name: %s",port)
                 
                 # No need to configure max qos in Controller port
-                if p.port_no != 4294967294:
-                    self.configure_max_qos(port)
+                # if p.port_no != 4294967294:
+                #     self.configure_max_qos(port)
                     # self.QOS_FLAG = True
 
 
@@ -1066,8 +1115,39 @@ class ProjectController(app_manager.RyuApp):
                         
                         
                         self.logger.info("\tipvx src: %s\t ipvx dst: %s" % (ipvx_src,ipvx_dst))
+                
+                elif dst_port == 6081:
+             
+                    # self.logger.info("UDP PKT: %s"%udp_pkt)
+                    vxlan_pkt = pkt.get_protocol(geneve.geneve)
+                    vni = vxlan_pkt.vni
+                    options = vxlan_pkt.options
+                    
+                    vx_lan = 1
+                    payload_pkt = pkt[4:]
+                    # payload_pkt = packet.Packet(payload_pkt)
+                    
+                    # pkt_payload = payload_pkt.get_protocol(ipv4.ipv4)
+                    # self.logger.info("\tvxlan_pkt PKT: %s" % pkt)
+                    
+                    ethvx_src = payload_pkt[0].src
+                    ethvx_dst = payload_pkt[0].dst
                     
                     
+                    ipvx_src = payload_pkt[1].src
+                    ipvx_dst = payload_pkt[1].dst
+                    self.logger.info("\tGeneve options: %s" % options)
+                    
+                    self.vx_src_dst.setdefault(ipvx_src,[])
+                    if ipvx_dst not in self.vx_src_dst[ipvx_src]:
+                        self.vx_src_dst[ipvx_src].append(ipvx_dst)
+                        self.logger.info("geneve PKT: %s" % vxlan_pkt)
+                        # self.logger.info("vxlan_pkt PKT: %s" % self.vx_src_dst)
+                        
+                        
+                        self.logger.info("\tipvx src: %s\t ipvx dst: %s" % (ipvx_src,ipvx_dst))
+                
+                
                 else:
                     # self.logger.info("\n\tDIFF PKT:%s"%udp_pkt)
                     pass
@@ -1174,7 +1254,12 @@ class ProjectController(app_manager.RyuApp):
             switch.send_msg(req)
 
             for port in ports:
-                self.sw_port[switch.id][port.port_no] = port.name.decode('utf-8')
+                port_name = port.name.decode('utf-8')
+                self.sw_port[switch.id][port.port_no] = port_name
+            # No need to configure max qos in Controller port
+                if port.port_no != 4294967294:
+                    self.configure_max_qos(port_name)
+            
         
         # self.logger.info("ALL_SW: %s",self.sw_port)
 
@@ -1796,11 +1881,11 @@ class ProjectController(app_manager.RyuApp):
                         self.logger.warning('Negative value of interval RX bytes')
                 self.rx_byte_cur[dpid][port_no] = stat.rx_bytes
                 
-                if dpid == 1:
-                    if port_no in self.tx_pkt_int[dpid] and port_no in self.tx_byte_int[dpid]:
-                        self.logger.info('%016x %8x %8d', dpid, port_no,
-                                        # self.tx_pkt_int[dpid][port_no],
-                                        self.tx_byte_int[dpid][port_no])
+                # if dpid == 1:
+                #     if port_no in self.tx_pkt_int[dpid] and port_no in self.tx_byte_int[dpid]:
+                #         self.logger.info('%016x %8x %8d', dpid, port_no,
+                #                         # self.tx_pkt_int[dpid][port_no],
+                #                         self.tx_byte_int[dpid][port_no])
                 
             else:
                 pass
