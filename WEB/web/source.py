@@ -29,7 +29,7 @@ def get_host():
     return x
 
 
-def put_demand(path,src_ip,dst_ip,vni,max_rate,min_rate):
+def put_demand(path,src_ip,dst_ip,vni,max_rate,min_rate,mod):
     max_rate = max_rate.replace(",", "")
     min_rate = min_rate.replace(",", "")
     demand = {}
@@ -37,9 +37,15 @@ def put_demand(path,src_ip,dst_ip,vni,max_rate,min_rate):
     demand['path'] = path
     demand['src_ip'] = src_ip
     demand['dst_ip'] = dst_ip
+    print(mod)
+
     if vni == 'None':
         vni = None
+
+    if mod == "None":
+        mod = None
     
+    demand['mod'] = mod
     demand['vni'] = vni
     
     if max_rate:
