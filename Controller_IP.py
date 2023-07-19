@@ -181,21 +181,21 @@ class ProjectController(app_manager.RyuApp):
         if not get_queue:
             # self.logger.info("Queue not ref")
             tx = db.transact()
-            # uuid = get_queue[0]['_uuid']
+            uuid = port_qos
+
             tx.delete(table = "QoS",
-                    where = [])
+                    where = [["_uuid", "==", ["uuid",uuid]]])
+            tx.mutate(table = "Port",
+                        where = [["name", "==", port]],
+                        mutations = [tx.make_mutations("qos", "delete", {"uuid": port_qos})])
             response = tx.commit()
-
-            print("%s" %(response["result"]))
                 
-            res = db.delete(table = "Queue",
-                            where = [],)
-
+            
             return
 
         # QOS ref delete
         tx = db.transact()
-        uuid = get_queue[0]['_uuid']
+        uuid = port_qos
 
         tx.delete(table = "QoS",
                 where = [["_uuid", "==", ["uuid",uuid]]])
