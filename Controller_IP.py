@@ -130,7 +130,7 @@ class ProjectController(app_manager.RyuApp):
     def configure_max_qos(self,port):
         ovs_bridge = bridge.OVSBridge(self.CONF, dpid, ovsdb_server)
         self.queue_config.setdefault(port,[])
-        self.del_all_qos(port)
+        self.del_qos_all(port)
         try:
             if self.queue_config[port]:
                 ovs_bridge.set_qos(port, type='linux-hfsc',
@@ -157,13 +157,59 @@ class ProjectController(app_manager.RyuApp):
             raise ValueError(msg)
     
 
-    def del_all_qos(self,port):
-        ovs_bridge = bridge.OVSBridge(self.CONF, dpid, ovsdb_server)
-        try:
-            ovs_bridge.del_qos(port)
-        except Exception as msg:
-            raise ValueError(msg)
+    # def del_all_qos(self,port):
+    #     ovs_bridge = bridge.OVSBridge(self.CONF, dpid, ovsdb_server)
+    #     try:
+    #         ovs_bridge.del_qos(port)
+    #     except Exception as msg:
+    #         raise ValueError(msg)
         
+
+    def del_qos_all(self,port):
+        db = libovsdb.OVSDBConnection(ovsdb_server, "Open_vSwitch")
+
+        get_port = db.select(table = "Port",
+                            columns = ['_uuid',"qos"],
+                            where = [["name", "==", port]],)
+        port_qos = get_port[0]['qos']
+
+
+        get_queue = db.select(table = "QoS",
+                    columns = ['_uuid',"queues"],
+                    where = [["_uuid", "==", ["uuid",port_qos]]])
+        
+        if not get_queue:
+            # self.logger.info("Queue not ref")
+            tx = db.transact()
+            # uuid = get_queue[0]['_uuid']
+            tx.delete(table = "QoS",
+                    where = [])
+            response = tx.commit()
+
+            print("%s" %(response["result"]))
+                
+            res = db.delete(table = "Queue",
+                            where = [],)
+
+            return
+
+        # QOS ref delete
+        tx = db.transact()
+        uuid = get_queue[0]['_uuid']
+
+        tx.delete(table = "QoS",
+                where = [["_uuid", "==", ["uuid",uuid]]])
+        tx.mutate(table = "Port",
+                    where = [["name", "==", port]],
+                    mutations = [tx.make_mutations("qos", "delete", {"uuid": port_qos})])
+        response = tx.commit()
+
+        for queue in get_queue[0]['queues']:
+            queue_uuid = queue[1][1]           
+            res = db.delete(table = "Queue",
+                            where = [["_uuid", "==", ["uuid",queue_uuid]]],
+                            referby = ["QoS", port_qos, "queues"])
+        return
 
 
     # We need to set default queue 0 with maximum bandwithd allow for testing
@@ -938,6 +984,9 @@ class ProjectController(app_manager.RyuApp):
         match = parser.OFPMatch()
         actions = [parser.OFPActionOutput(ofproto.OFPP_CONTROLLER,
                                           ofproto.OFPCML_NO_BUFFER)]
+        self.delete_all_flow(datapath,0)
+        self.delete_all_flow(datapath,1)
+
         self.add_flow(datapath, 0, match, actions)
 
 
@@ -948,13 +997,13 @@ class ProjectController(app_manager.RyuApp):
         for p in ev.msg.body:
             # self.bandwidths[switch.id][p.port_no] = p.curr_speed
             self.bandwidths[switch.id][p.port_no] = DEFAULT_BW
-            if p.curr_speed > 0 :
-                port = p.name.decode("utf-8")
+            # if p.curr_speed > 0 :
+            #     port = p.name.decode("utf-8")
                 # self.logger.info("name: %s",port)
                 
                 # No need to configure max qos in Controller port
-                if p.port_no != 4294967294:
-                    self.configure_max_qos(port)
+                # if p.port_no != 4294967294:
+                #     self.configure_max_qos(port)
                     # self.QOS_FLAG = True
 
 
@@ -1174,7 +1223,12 @@ class ProjectController(app_manager.RyuApp):
             switch.send_msg(req)
 
             for port in ports:
-                self.sw_port[switch.id][port.port_no] = port.name.decode('utf-8')
+                port_name = port.name.decode('utf-8')
+                self.sw_port[switch.id][port.port_no] = port_name
+            # No need to configure max qos in Controller port
+                if port.port_no != 4294967294:
+                    self.configure_max_qos(port_name)
+            
         
         # self.logger.info("ALL_SW: %s",self.sw_port)
 
