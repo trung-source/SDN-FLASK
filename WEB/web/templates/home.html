@@ -77,6 +77,7 @@
         {% set dst_ip_request = demand["dst_ip_request"] %}
         {% set vni = demand["vni"] %}
         {% set path_request = demand["path_request"] %}
+        {% set mod = demand["modcheck"] %}
         {% endif %}
         <h3 align='center' class="text-primary card-header">Bandwidth Demand Request</h3>
 
@@ -118,8 +119,16 @@
                 <label for="destiantion" class="font-alt font-size-14 text-info">Path:</label>
                 <input type="text" name="path_request" class="form-control" value="{{ path_request }}" placeholder="ex: 1,2,3">
             </div>
-        </div> 
-    
+        </div>  <div class="col-sm-10">
+        <div class="form-check center">
+          {% if mod %}
+          <input type="checkbox" class="form-check-input" name="modcheck" id="mod_check" checked>
+          {% else %}
+          <input type="checkbox" class="form-check-input" name="modcheck" id="mod_check">
+          {% endif %}
+          <label class="form-check-label" for="mod_check">Moding old Request</label>
+        </div>
+      </div>
         <div align="center">
             <button type="submit" id="form2-submit" name="form2-submit" class='btn btn-primary'>
                 Submit
