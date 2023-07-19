@@ -115,6 +115,7 @@ class SimpleSwitchRest13(Controller_IP.ProjectController):
         resp = ""
         cond = False
         DO_SET_REQUEST = True
+        DO_MOD = False
         for id in self.request_table:
             if self.request_table[id]['vni'] != entry["vni"]:
                 continue
@@ -122,15 +123,33 @@ class SimpleSwitchRest13(Controller_IP.ProjectController):
             if self.request_table[id]['path'] != entry["path"]:
                 continue
             
-            if self.request_table[id]['request'] != entry["request"]:
-                continue
+            
             
             if self.request_table[id]['src_ip'] != entry["src_ip"]:
                 continue
             
             if self.request_table[id]['dst_ip'] != entry["dst_ip"]:
                 continue
+
+            if self.request_table[id]['request'] == entry["request"]:
+                return "Duplicate request", False
+            
+
+            if "mod" not in list(entry.keys()) or not entry["mod"]:
+                resp = "Duplicate request (Not a modding request): %s/ %s" %(entry.keys(),entry["mod"])
+                return resp , False
+            
+            
+
+
             DO_SET_REQUEST = False
+
+            self.logger.info("Mod Request")
+            resp,cond = self.handle_request_mod(self.request_table[id],entry["request"])
+            if cond == True:
+                self.request_table[id]['request']  = entry["request"]
+            break
+            
             
             
         
@@ -142,9 +161,10 @@ class SimpleSwitchRest13(Controller_IP.ProjectController):
             # self.request_id += 1
             self.logger.info("New Request")
             resp,cond = self.handle_request(entry['request'],entry['path'],entry['src_ip'],entry['dst_ip'],entry['vni'])
-        else:
-            self.logger.info("Duplicate Request")
-            resp = "Duplicate Request"
+        
+        
+      
+            
         
         # self.logger.info("DONE MAP")
         
