@@ -23,6 +23,7 @@ def home():
     if request.method == 'POST' and "form-submit" in request.form:
         src_ip = request.form.get('src_ip_find')
         dst_ip = request.form.get('dst_ip_find')
+        
         # print(type(src_ip),dst_ip)
         # table = [[1,2,3],[4,5,6]]
         resp = source.put_path_find(src_ip,dst_ip)
@@ -47,8 +48,11 @@ def home():
         path_request = ast.literal_eval('['+ path_request + ']')
         # max_rate = max_rate.replace(",", "")
         # min_rate = min_rate.replace(",", "")
+        mod = request.form.get('modcheck')
+    
         
-        resp = source.put_demand(path_request,src_ip,dst_ip,vni,max_rate,min_rate)
+        
+        resp = source.put_demand(path_request,src_ip,dst_ip,vni,max_rate,min_rate,mod)
         if resp.status_code != 200: 
             flash(resp.text, category = 'error')
             return render_template("home.html",switch_list = switch_list,host_list=host_list,
