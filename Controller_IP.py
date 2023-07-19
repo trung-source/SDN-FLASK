@@ -514,26 +514,27 @@ class ProjectController(app_manager.RyuApp):
                     )
                 if ip_proto == 1:
                 # Ipv4
-                    match_ip = ofp_parser.OFPMatch(
+                    match_icmp = ofp_parser.OFPMatch(
                         eth_type=0x0800,
                         ip_proto=ip_proto,
                          
                         ipv4_src=ip_src, 
                         ipv4_dst=ip_dst,
                     )
+                    self.add_flow(dp, 2, match_icmp, actions,IDLE_TIMEOUT)        
+
                     # ARP
                     
-                elif ip_proto == 6:
-                    match_ip = ofp_parser.OFPMatch(
+                if ip_proto == 6:
+                    match_tcp = ofp_parser.OFPMatch(
                         eth_type=0x0800,
                         ip_proto=ip_proto,
                         ipv4_src=ip_src, 
                         ipv4_dst=ip_dst,
                         tcp_dst=dst_port
-
-                        
-
                     )
+                    self.add_flow(dp, 10, match_tcp, actions,IDLE_TIMEOUT)
+
                     # ARP
                     match_arp = ofp_parser.OFPMatch(
                         eth_type=0x0806, 
@@ -541,33 +542,48 @@ class ProjectController(app_manager.RyuApp):
                         arp_tpa=ip_dst
                     )
                     
-                elif ip_proto == 17:
-                    match_ip = ofp_parser.OFPMatch(
-                        eth_type=0x0800, 
-                        ip_proto=ip_proto,
-                        
-                        ipv4_src=ip_src, 
-                        ipv4_dst=ip_dst,
-                        udp_dst=dst_port,
-                        
-                        tunnel_id = vni
-                    )
+                if ip_proto == 17:
+
+                    if not vni:
+                        match_udp = ofp_parser.OFPMatch(
+                            eth_type=0x0800, 
+                            ip_proto=ip_proto,
+                            ipv4_src=src_ip, 
+                            ipv4_dst=dst_ip,
+                            udp_dst=dst_port
+                        )
+                        self.add_flow(dp, 10, match_udp, actions,IDLE_TIMEOUT)
+                    else:
+
+                        match_vni= ofp_parser.OFPMatch(
+                            eth_type=0x0800, 
+                            ip_proto=ip_proto,
+                            
+                            ipv4_src=ip_src, 
+                            ipv4_dst=ip_dst,
+                            udp_dst=dst_port,
+                            
+                            tunnel_id = vni
+                        )
+                        self.add_flow(dp, 12, match_vni, actions,IDLE_TIMEOUT)
+
                     # ARP
                     match_arp = ofp_parser.OFPMatch(
                         eth_type=0x0806, 
                         arp_spa=ip_src, 
                         arp_tpa=ip_dst
                     )
-                else:
+
+                # else:
                     
                     
-                    match_ip = ofp_parser.OFPMatch(
-                        eth_type=0x0800,
-                        ip_proto=ip_proto,
+                #     match_ip = ofp_parser.OFPMatch(
+                #         eth_type=0x0800,
+                #         ip_proto=ip_proto,
                          
-                        ipv4_src=ip_src, 
-                        ipv4_dst=ip_dst,
-                    )
+                #         ipv4_src=ip_src, 
+                #         ipv4_dst=ip_dst,
+                #     )
                 
                 out_ports = ports[in_port]
 
@@ -585,15 +601,14 @@ class ProjectController(app_manager.RyuApp):
 
      
                 # elif len(out_ports) == 1:
-                actions = [ofp_parser.OFPActionOutput(out_ports[0][0])]
+                    
 
-                if ip_proto == 1:
-                    self.add_flow(dp, 2, match_ip, actions,IDLE_TIMEOUT)
+        
+        
+        
                     
-                else:
-                    
-                    self.add_flow(dp, 10, match_ip, actions,IDLE_TIMEOUT)
-                self.add_flow(dp, 1, match_arp, actions,IDLE_TIMEOUT)
+        self.add_flow(dp, 1, match_arp , actions,IDLE_TIMEOUT)
+        
         # print("Path installation finished in ", time.time() - computation_start )
         # print(paths_with_ports[0][src][1])
         
@@ -689,150 +704,6 @@ class ProjectController(app_manager.RyuApp):
         # print(paths_with_ports[0][src][1])
         return paths_with_ports[src][1]
     
-    
-    def install_paths(self, src, first_port, dst, last_port, ip_src, ip_dst,ip_proto,vx_src,vx_dst,dst_port,src_ip,dst_ip,vni):
-        # if SHOW_PATH == 1:
-        #     self.path_install_cnt +=1
-            # self.logger.info("installing path cnt: %d" % (self.path_install_cnt))
-        self.LEARNING = 1
-        computation_start = time.time()
-        paths,pw = self.get_optimal_paths(src, dst, first_port, last_port)
-        # self.logger.info("paths:%s\n"
-        #                  "pw:%s\n"
-        #                  ,paths,pw)
-        
-
-        # paths = paths[0]
-        pw = pw[0]
-        paths_with_ports = self.add_ports_to_paths(paths, first_port, last_port)
-        paths_with_ports = paths_with_ports[0]
-        
-        
-        switches_in_paths = set().union(*paths)
-        # print(switches_in_paths)
-        if VERBOSE == 1:
-            print(paths_with_ports)
-            # print(pw)
-            print("#adjacency",self.adjacency)
-
-        for node in paths[0]:
-
-            dp = self.datapath_list[node]
-            ofp = dp.ofproto
-            ofp_parser = dp.ofproto_parser
-
-
-            # pw is total cost of a path (path weight)
-            # ports contain inport:(outport,pw)
-            ports = defaultdict(list)
-            actions = []
-        
-
-
-      
-            if node in paths_with_ports:
-                in_port = paths_with_ports[node][0]
-                out_port = paths_with_ports[node][1]
-                if (out_port, pw) not in ports[in_port]:
-                    ports[in_port].append((out_port, pw))
-        
-            if VERBOSE == 1:
-                print("-------------------------------")
-                print("\tnode {}: ports{}".format(node,ports) ) 
-
-            for in_port in ports:
-                # self.logger.info("VNI: %s"%vni)
-                match_arp = ofp_parser.OFPMatch(
-                        eth_type=0x0806, 
-                        arp_spa=ip_src, 
-                        arp_tpa=ip_dst
-                    )
-                if ip_proto == 1:
-                # Ipv4
-                    match_ip = ofp_parser.OFPMatch(
-                        eth_type=0x0800,
-                        ip_proto=ip_proto,
-                         
-                        ipv4_src=ip_src, 
-                        ipv4_dst=ip_dst,
-                    )
-                    # ARP
-                    
-                elif ip_proto == 6:
-                    match_ip = ofp_parser.OFPMatch(
-                        eth_type=0x0800,
-                        ip_proto=ip_proto,
-                        ipv4_src=ip_src, 
-                        ipv4_dst=ip_dst,
-                        tcp_dst=dst_port
-
-                        
-
-                    )
-                    # ARP
-                    match_arp = ofp_parser.OFPMatch(
-                        eth_type=0x0806, 
-                        arp_spa=ip_src, 
-                        arp_tpa=ip_dst
-                    )
-                    
-                elif ip_proto == 17:
-                    match_ip = ofp_parser.OFPMatch(
-                        eth_type=0x0800, 
-                        ip_proto=ip_proto,
-                        
-                        ipv4_src=ip_src, 
-                        ipv4_dst=ip_dst,
-                        udp_dst=dst_port,
-                        
-                        tunnel_id = vni
-                    )
-                    # ARP
-                    match_arp = ofp_parser.OFPMatch(
-                        eth_type=0x0806, 
-                        arp_spa=ip_src, 
-                        arp_tpa=ip_dst
-                    )
-                else:
-                    
-                    
-                    match_ip = ofp_parser.OFPMatch(
-                        eth_type=0x0800,
-                        ip_proto=ip_proto,
-                         
-                        ipv4_src=ip_src, 
-                        ipv4_dst=ip_dst,
-                    )
-                
-                out_ports = ports[in_port]
-
-                    
-                if VERBOSE == 1:
-                    print("\t\t-Outport",out_ports )
-                group_new = False    
-                if (src, dst) not in self.multipath_group_ids:
-                        self.all_group_id.setdefault(src,{})
-                        group_new = True
-                        self.multipath_group_ids[
-                            src, dst] = self.generate_openflow_gid(src,dst)
-                        self.all_group_id[src].setdefault(self.multipath_group_ids[
-                            src, dst], {})
-
-     
-                # elif len(out_ports) == 1:
-                actions = [ofp_parser.OFPActionOutput(out_ports[0][0])]
-
-                if ip_proto == 1:
-                    self.add_flow(dp, 2, match_ip, actions,IDLE_TIMEOUT)
-                    
-                else:
-                    
-                    self.add_flow(dp, 10, match_ip, actions,IDLE_TIMEOUT)
-                self.add_flow(dp, 1, match_arp, actions,IDLE_TIMEOUT)
-        # print("Path installation finished in ", time.time() - computation_start )
-        # print(paths_with_ports[0][src][1])
-        
-        return paths_with_ports[src][1]
 
 
     def install_replace_paths(self, src, first_port, dst, last_port, ip_src, ip_dst,p,cost):
