@@ -27,7 +27,8 @@
           <thead>
             <tr>
               <th scope="col">VNI</th>
-              <th scope="col">IP</th>
+              <th scope="col">Inner IP</th>
+              <th scope="col">Outter IP</th>
               <th scope="col">Tunnel key</th>
             </tr>
           </thead>
@@ -38,7 +39,8 @@
             {% for lsp in lsps%}
               <tr>
                 <th scope="row"> {{ vni }}</th>
-                <th scope="row"> {{ lsp["ip"] }}</th>
+                <th scope="row"> {{ lsp["inner_ip"] }}</th>
+                <th scope="row"> {{ lsp["outter_ip"] }}</th>
                 <th scope="row"> {{ lsp["tunnel_key"] }}</th>
               </tr>
             {% endfor %}

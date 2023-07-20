@@ -40,9 +40,6 @@ host_url = '/simpleswitch/host/'
 virtual_topo_url = '/simpleswitch/virtualtopo/'
 
 
-ovn_nb = 'tcp:192.168.15.165:6641'
-ovn_sb = 'tcp:192.168.15.165:6642'
-
 class SimpleSwitchRest13(Controller_IP.ProjectController):
 
     _CONTEXTS = {'wsgi': WSGIApplication}
@@ -62,48 +59,8 @@ class SimpleSwitchRest13(Controller_IP.ProjectController):
     #     self.mac_to_port.setdefault(datapath.id, {})
     
     def get_virtual_topo(self):
-            lswitchs = {}
-
-            sb = libovsdb.OVSDBConnection(ovn_sb, "OVN_Southbound")
-            # nb = libovsdb.OVSDBConnection(ovn_nb, "OVN_Northbound")
-
-            # tx_nb = nb.transact()
-            tx_sb = sb.transact()
-
-            # Get logical switch uuid and vni from sb
-            res = tx_sb.row_select(table = "Datapath_Binding",
-                        columns = ["_uuid","tunnel_key"],
-                        where = [])
-            try:
-                response = tx_sb.commit()
-                result = response['result'][0]['rows']
-            except:
-                return result, False
-            else:
-                for lswitch in result:
-                    attr = {}
-                    attr['vni'] = lswitch.get('tunnel_key')
-                    attr['ports'] = []
-                    uuid = lswitch.get('_uuid')[1]
-
-                    response = tx_sb.row_select(table = "Port_Binding",
-                                        columns = ['mac','tunnel_key'],
-                                        where = [["datapath", "==", ["uuid",uuid]]])
-                    try :
-                        res = tx_sb.commit()
-                        result = res['result'][0]['rows']
-                        lsps = []
-                        for lsp in result:
-                            temp = {}
-                            temp['ip'] = re.findall( r'[0-9]+(?:\.[0-9]+){3}', lsp.get('mac'))
-                            temp['tunnel_key'] = lsp.get('tunnel_key')
-                            lsps.append(temp)
-                    except:
-                        return result,False
-                    else:
-                        attr['ports'] = lsps
-                        lswitchs[lswitch.get('_uuid')[1]] = attr
-            result = list(lswitchs.values())
+            self.get_virtual_topology()
+            result = list(self.lswitchs.values())
             return result, True
 
     def get_switch_all(self):    

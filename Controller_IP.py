@@ -173,7 +173,7 @@ class ProjectController(app_manager.RyuApp):
                     uuid = ls.get('_uuid')[1]
 
                     response = tx_sb.row_select(table = "Port_Binding",
-                                        columns = ['mac','tunnel_key','chassis','logical_port'],
+                                        columns = ['mac','tunnel_key','chassis'],
                                         where = [["datapath", "==", ["uuid",uuid]]])
                     try :
                         res = tx_sb.commit()
@@ -189,7 +189,6 @@ class ProjectController(app_manager.RyuApp):
 
                             temp['inner_ip'] = re.findall( r'[0-9]+(?:\.[0-9]+){3}', lp.get('mac'))[0]
                             temp['tunnel_key'] = int(lp.get('tunnel_key'))
-                            temp['logical_port'] = lp.get('logical_port')
                             lports.append(temp)
                     except Exception as msg:
                         raise ValueError(msg)
