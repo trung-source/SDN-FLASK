@@ -20,7 +20,9 @@ def home():
         
  
     if request.method == 'POST' and "virtual-submit" in request.form:
-            virutal_topo = source.get_virtual_topo().text
+            virutal_topo = source.get_virtual_topo().text   
+            print("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+            print(virutal_topo)
             flash("Get logical topo success", category = 'success')
             virutal_topo = (json.loads(virutal_topo))
             return render_template("home.html",virutal_topo=virutal_topo)

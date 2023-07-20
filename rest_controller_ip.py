@@ -63,7 +63,8 @@ class SimpleSwitchRest13(Controller_IP.ProjectController):
     
     def get_virtual_topo(self):
             lswitchs = {}
-
+            encaps = []
+            chassises = []
             sb = libovsdb.OVSDBConnection(ovn_sb, "OVN_Southbound")
             # nb = libovsdb.OVSDBConnection(ovn_nb, "OVN_Northbound")
 
@@ -74,35 +75,56 @@ class SimpleSwitchRest13(Controller_IP.ProjectController):
             res = tx_sb.row_select(table = "Datapath_Binding",
                         columns = ["_uuid","tunnel_key"],
                         where = [])
+            res = tx_sb.row_select(table = "Chassis",
+                        columns = ["_uuid","encaps"],
+                        where = [])
+            res = tx_sb.row_select(table = "Encap",
+                        columns = ["_uuid","ip"],
+                        where = [])
             try:
                 response = tx_sb.commit()
-                result = response['result'][0]['rows']
+                lss = response['result'][0]['rows']
+
+                chassises = response['result'][1]['rows']
+                for chassis in chassises:
+                    chassis['_uuid'] = chassis['_uuid'][1]
+                    chassis['encaps'] = chassis['encaps'][1]
+
+                encaps = response['result'][2]['rows']
+                for encap in encaps:
+                    encap['_uuid'] = encap['_uuid'][1]
             except:
-                return result, False
+                return response, False
             else:
-                for lswitch in result:
+                for ls in lss:
                     attr = {}
-                    attr['vni'] = lswitch.get('tunnel_key')
+                    attr['vni'] = ls.get('tunnel_key')
                     attr['ports'] = []
-                    uuid = lswitch.get('_uuid')[1]
+                    uuid = ls.get('_uuid')[1]
 
                     response = tx_sb.row_select(table = "Port_Binding",
-                                        columns = ['mac','tunnel_key'],
+                                        columns = ['mac','tunnel_key','chassis'],
                                         where = [["datapath", "==", ["uuid",uuid]]])
                     try :
                         res = tx_sb.commit()
-                        result = res['result'][0]['rows']
-                        lsps = []
-                        for lsp in result:
-                            temp = {}
-                            temp['ip'] = re.findall( r'[0-9]+(?:\.[0-9]+){3}', lsp.get('mac'))
-                            temp['tunnel_key'] = lsp.get('tunnel_key')
-                            lsps.append(temp)
+                        lps = res['result'][0]['rows']
+                        lports = []
+                        for lp in lps:
+                            temp = {'inner_ip': '', 'outter_ip': '', 'tunnel_key': ''}
+                            for chassis in chassises:
+                                if chassis['_uuid'] == lp.get('chassis')[1]:
+                                    for encap in encaps:
+                                        if encap['_uuid'] == chassis['encaps']:
+                                            temp['outter_ip'] = encap['ip']
+
+                            temp['inner_ip'] = re.findall( r'[0-9]+(?:\.[0-9]+){3}', lp.get('mac'))[0]
+                            temp['tunnel_key'] = int(lp.get('tunnel_key'))
+                            lports.append(temp)
                     except:
-                        return result,False
+                        return response,False
                     else:
-                        attr['ports'] = lsps
-                        lswitchs[lswitch.get('_uuid')[1]] = attr
+                        attr['ports'] = lports
+                        lswitchs[ls.get('_uuid')[1]] = attr
             result = list(lswitchs.values())
             return result, True
 
