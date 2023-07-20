@@ -37,6 +37,7 @@ import logging
 
 from libovsdb import libovsdb
 import json
+import re
 from ryu.lib.ovs import bridge
 
 
@@ -61,7 +62,8 @@ QOS_TABLE_ID = 0
 IDLE_TIMEOUT = 300
 
 
-
+ovn_nb = 'tcp:192.168.15.165:6641'
+ovn_sb = 'tcp:192.168.15.165:6642'
 
 # logging.basicConfig(level = logging.INFO)
 
@@ -105,6 +107,8 @@ class ProjectController(app_manager.RyuApp):
         self.request = {"max-rate":None,"min-rate":None}
         self.vni = None
         self.paths = []
+
+        self.lswitchs = {}
         
         if DEBUGING == 1:
             self.logger.setLevel(logging.DEBUG)
@@ -126,7 +130,73 @@ class ProjectController(app_manager.RyuApp):
         self.rx_byte_cur = {}   # currently monitoring TX bytes
         self.rx_pkt_int = {}    # TX packets in the last monitoring interval
         self.rx_byte_int = {}    # TX bytes in the last monitoring interval
-    
+
+
+    def get_virtual_topology(self):
+            encaps = []
+            chassises = []
+            sb = libovsdb.OVSDBConnection(ovn_sb, "OVN_Southbound")
+            # nb = libovsdb.OVSDBConnection(ovn_nb, "OVN_Northbound")
+
+            # tx_nb = nb.transact()
+            tx_sb = sb.transact()
+
+            # Get logical switch uuid and vni from sb
+            res = tx_sb.row_select(table = "Datapath_Binding",
+                        columns = ["_uuid","tunnel_key"],
+                        where = [])
+            res = tx_sb.row_select(table = "Chassis",
+                        columns = ["_uuid","encaps"],
+                        where = [])
+            res = tx_sb.row_select(table = "Encap",
+                        columns = ["_uuid","ip"],
+                        where = [])
+            try:
+                response = tx_sb.commit()
+                lss = response['result'][0]['rows']
+
+                chassises = response['result'][1]['rows']
+                for chassis in chassises:
+                    chassis['_uuid'] = chassis['_uuid'][1]
+                    chassis['encaps'] = chassis['encaps'][1]
+
+                encaps = response['result'][2]['rows']
+                for encap in encaps:
+                    encap['_uuid'] = encap['_uuid'][1]
+            except Exception as msg:
+                raise ValueError(msg)
+            else:
+                for ls in lss:
+                    attr = {}
+                    attr['vni'] = ls.get('tunnel_key')
+                    attr['ports'] = []
+                    uuid = ls.get('_uuid')[1]
+
+                    response = tx_sb.row_select(table = "Port_Binding",
+                                        columns = ['mac','tunnel_key','chassis','logical_port'],
+                                        where = [["datapath", "==", ["uuid",uuid]]])
+                    try :
+                        res = tx_sb.commit()
+                        lps = res['result'][0]['rows']
+                        lports = []
+                        for lp in lps:
+                            temp = {'inner_ip': '', 'outter_ip': '', 'tunnel_key': ''}
+                            for chassis in chassises:
+                                if chassis['_uuid'] == lp.get('chassis')[1]:
+                                    for encap in encaps:
+                                        if encap['_uuid'] == chassis['encaps']:
+                                            temp['outter_ip'] = encap['ip']
+
+                            temp['inner_ip'] = re.findall( r'[0-9]+(?:\.[0-9]+){3}', lp.get('mac'))[0]
+                            temp['tunnel_key'] = int(lp.get('tunnel_key'))
+                            temp['logical_port'] = lp.get('logical_port')
+                            lports.append(temp)
+                    except Exception as msg:
+                        raise ValueError(msg)
+                    else:
+                        attr['ports'] = lports
+                        self.lswitchs[ls.get('_uuid')[1]] = attr  
+        
     def configure_max_qos(self,port):
         ovs_bridge = bridge.OVSBridge(self.CONF, dpid, ovsdb_server)
         self.queue_config.setdefault(port,[])
@@ -142,7 +212,7 @@ class ProjectController(app_manager.RyuApp):
         except Exception as msg:
             raise ValueError(msg)
         
-        
+    
     def configure_qos(self,port):
         ovs_bridge = bridge.OVSBridge(self.CONF, dpid, ovsdb_server)
         try:
@@ -563,6 +633,9 @@ class ProjectController(app_manager.RyuApp):
                             ipv4_dst=ip_dst,
                             udp_dst=dst_port,
                             
+                            tun_ipv4_src=vx_src,
+                            tun_ipv4_dst=vx_dst,
+
                             tunnel_id = vni
                         )
                         self.add_flow(dp, 12, match_vni, actions,IDLE_TIMEOUT)
@@ -1348,8 +1421,128 @@ class ProjectController(app_manager.RyuApp):
                     
         self.add_flow(datapath, 1, match_arp , actions,IDLE_TIMEOUT)
         
+    # Return 
+    #    None if OVN have a same queue  
+    #   "no queue" if OVN don't have queue in link (src_lp <-> dst_lp) 
+    #   "wrong + diff" if OVN have queue in link but don't match in some field => modify queue
+    def check_queue_OVN(self,src_lp,dst_lp,min_rate,max_rate=0,burst=0,direction='to-lport'):
+        nb = libovsdb.OVSDBConnection(ovn_nb, "OVN_Northbound")
+        tx_nb = nb.transact()
 
+        ret = {}
+        res = tx_nb.row_select(table = "Logical_Switch_Port",
+                    columns = ["queue_rules"],
+                    where = [["name", "==", str(dst_lp)]])
+        try:
+            response = tx_nb.commit()
+            queue = response['result'][0]['rows'][0]['queue_rules'][1]
+        except:
+            ret.append("no queue")
+            return ret
+        else:
+            res = tx_nb.row_select(table = "Queue",
+                        columns = ["bandwidth_max","bandwidth_min","direction","match"],
+                        where = [["_uuid", "==", ["_uuid",queue]]])
+            
+            try:
+                response = tx_nb.commit()
+                result = response['result'][0]['rows'][0]
+            except:
+                ret.append("no queue")
+                return ret
+            else: 
+                match = result.get('match').find(src_lp)
+                if match == -1:
+                    ret.append("no queue")
+                    return ret
+                
+                bandwidth_max = result.get('bandwidth_max')
+                if bandwidth_max and max_rate:
+                    for temp in bandwidth_max[1]:
+                        if temp[0] == 'rate' and int(temp[1]) == max_rate:
+                            continue
+                        if temp[0] == 'burst' and int(temp[1]) == burst: 
+                            continue
+                        ret.append("wrong bandwidth_max")
+                
+                bandwidth_min = result.get('bandwidth_min')
+                if bandwidth_min and min_rate:
+                    if bandwidth_min[1][0][1] != min_rate:
+                        ret.append("wrong bandwidth_min")
+                
+                direc = result.get('direction')
+                if direc != direction:
+                    ret.append("wrong direction")
+
+                return ret        
+
+    def  new_queue_OVN(self,src_lp,dst_lp,min_rate,max_rate,burst,direction='to-lport'):
+        nb = libovsdb.OVSDBConnection(ovn_nb, "OVN_Northbound")
+        
+        _row = {"direction":"to-lport", "priority":200}
+        _refer = []
+        
+        _row["match"] = "inport==\"" + str(src_lp) + "\""
+        
+        _refer = ["Logical_Switch_Port", "queue_rules", ["name", "==", str(dst_lp)]]
+
+        _row["direction"] = direction
+
+        # if insert.get("priority") != None:
+        #     _row["priority"] = insert.get("priority")[0]
+
+        if min_rate:
+            _row["bandwidth_min"] = ["map",[["min",int(min)]]]
+        
+        max_bw = []
+        if max_rate:
+            max_bw.append(["rate",int(max_rate)])
+        if burst:
+            max_bw.append(["burst",int(burst)])
+        
+        if max_bw:
+            _row["bandwidth_max"] = ["map",max_bw]
+
+        if max_bw or min_rate != None:
+            res = nb.insert(table="Queue", row=_row, refer=_refer)
+            # print(str(insert.get("min")))
+            print("Result: %s" %(json.dumps(res, indent=4)))
+            if res and res.get("uuid"):
+                return True
+        
+        return False
     
+    def handle_queue_request_OVN(self,src_inner_ip,dst_inner_ip,min_rate,max_rate,burst,direction='to-lport'):
+        self.get_virtual_topology()
+        
+        src_lp = 0
+        dst_lp = 0
+        src_vni = None
+        dst_vni = None
+        for ls in self.lswitchs.values():
+            for lp in ls.get('ports'):
+                if lp.get('inner_ip') == src_inner_ip and lp.get('outter_ip'):
+                    src_lp = lp.get('logical_port')
+                    src_vni = ls['vni']
+                if lp.get('inner_ip') ==  dst_inner_ip and lp.get('outter_ip'):
+                    dst_lp = lp.get('logical_port')
+                    dst_vni = ls['vni']
+
+        # For now, We only can add queue for virtual links in same lswitch
+        if src_vni and src_vni == dst_vni:
+            if src_lp and dst_lp:
+                ret = self.check_queue_OVN(src_lp,dst_lp,min_rate,max_rate,burst,direction)
+                if not ret: # Have a same queue in OVN, not do anything
+                    return True
+                
+                if "no queue" in ret: # Add new OVN queue
+                    self.new_queue_OVN()
+                    return True
+                else: # Modify OVN queue
+                    self.modify_queue_OVN()
+                    return True
+        return False
+           
     def accept_demand(self,request,path,dst_port,vni,src_ip,dst_ip):
         for i in range(len(path)-1):
             s1 = path[i]

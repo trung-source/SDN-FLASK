@@ -161,7 +161,6 @@ class SimpleSwitchRest13(Controller_IP.ProjectController):
         
         return resp, True
         
-            
   
     def set_request(self, entry):
         # self.logger.info("ITS GO IN HERE")
