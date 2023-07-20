@@ -173,7 +173,7 @@ class ProjectController(app_manager.RyuApp):
                     uuid = ls.get('_uuid')[1]
 
                     response = tx_sb.row_select(table = "Port_Binding",
-                                        columns = ['mac','tunnel_key','chassis'],
+                                        columns = ['mac','tunnel_key','chassis','logical_port'],
                                         where = [["datapath", "==", ["uuid",uuid]]])
                     try :
                         res = tx_sb.commit()
