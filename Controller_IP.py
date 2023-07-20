@@ -37,6 +37,7 @@ import logging
 
 from libovsdb import libovsdb
 import json
+import re
 from ryu.lib.ovs import bridge
 
 
@@ -61,7 +62,8 @@ QOS_TABLE_ID = 0
 IDLE_TIMEOUT = 300
 
 
-
+ovn_nb = 'tcp:192.168.15.165:6641'
+ovn_sb = 'tcp:192.168.15.165:6642'
 
 # logging.basicConfig(level = logging.INFO)
 
@@ -105,6 +107,8 @@ class ProjectController(app_manager.RyuApp):
         self.request = {"max-rate":None,"min-rate":None}
         self.vni = None
         self.paths = []
+
+        self.lswitchs = {}
         
         if DEBUGING == 1:
             self.logger.setLevel(logging.DEBUG)
@@ -126,7 +130,72 @@ class ProjectController(app_manager.RyuApp):
         self.rx_byte_cur = {}   # currently monitoring TX bytes
         self.rx_pkt_int = {}    # TX packets in the last monitoring interval
         self.rx_byte_int = {}    # TX bytes in the last monitoring interval
-    
+
+
+    def get_virtual_topology(self):
+            encaps = []
+            chassises = []
+            sb = libovsdb.OVSDBConnection(ovn_sb, "OVN_Southbound")
+            # nb = libovsdb.OVSDBConnection(ovn_nb, "OVN_Northbound")
+
+            # tx_nb = nb.transact()
+            tx_sb = sb.transact()
+
+            # Get logical switch uuid and vni from sb
+            res = tx_sb.row_select(table = "Datapath_Binding",
+                        columns = ["_uuid","tunnel_key"],
+                        where = [])
+            res = tx_sb.row_select(table = "Chassis",
+                        columns = ["_uuid","encaps"],
+                        where = [])
+            res = tx_sb.row_select(table = "Encap",
+                        columns = ["_uuid","ip"],
+                        where = [])
+            try:
+                response = tx_sb.commit()
+                lss = response['result'][0]['rows']
+
+                chassises = response['result'][1]['rows']
+                for chassis in chassises:
+                    chassis['_uuid'] = chassis['_uuid'][1]
+                    chassis['encaps'] = chassis['encaps'][1]
+
+                encaps = response['result'][2]['rows']
+                for encap in encaps:
+                    encap['_uuid'] = encap['_uuid'][1]
+            except Exception as msg:
+                raise ValueError(msg)
+            else:
+                for ls in lss:
+                    attr = {}
+                    attr['vni'] = ls.get('tunnel_key')
+                    attr['ports'] = []
+                    uuid = ls.get('_uuid')[1]
+
+                    response = tx_sb.row_select(table = "Port_Binding",
+                                        columns = ['mac','tunnel_key','chassis'],
+                                        where = [["datapath", "==", ["uuid",uuid]]])
+                    try :
+                        res = tx_sb.commit()
+                        lps = res['result'][0]['rows']
+                        lports = []
+                        for lp in lps:
+                            temp = {'inner_ip': '', 'outter_ip': '', 'tunnel_key': ''}
+                            for chassis in chassises:
+                                if chassis['_uuid'] == lp.get('chassis')[1]:
+                                    for encap in encaps:
+                                        if encap['_uuid'] == chassis['encaps']:
+                                            temp['outter_ip'] = encap['ip']
+
+                            temp['inner_ip'] = re.findall( r'[0-9]+(?:\.[0-9]+){3}', lp.get('mac'))[0]
+                            temp['tunnel_key'] = int(lp.get('tunnel_key'))
+                            lports.append(temp)
+                    except Exception as msg:
+                        raise ValueError(msg)
+                    else:
+                        attr['ports'] = lports
+                        self.lswitchs[ls.get('_uuid')[1]] = attr  
+        
     def configure_max_qos(self,port):
         ovs_bridge = bridge.OVSBridge(self.CONF, dpid, ovsdb_server)
         self.queue_config.setdefault(port,[])
@@ -142,7 +211,7 @@ class ProjectController(app_manager.RyuApp):
         except Exception as msg:
             raise ValueError(msg)
         
-        
+    
     def configure_qos(self,port):
         ovs_bridge = bridge.OVSBridge(self.CONF, dpid, ovsdb_server)
         try:
@@ -563,6 +632,9 @@ class ProjectController(app_manager.RyuApp):
                             ipv4_dst=ip_dst,
                             udp_dst=dst_port,
                             
+                            tun_ipv4_src=vx_src,
+                            tun_ipv4_dst=vx_dst,
+
                             tunnel_id = vni
                         )
                         self.add_flow(dp, 12, match_vni, actions,IDLE_TIMEOUT)
