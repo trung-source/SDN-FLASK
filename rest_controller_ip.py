@@ -40,9 +40,6 @@ host_url = '/simpleswitch/host/'
 virtual_topo_url = '/simpleswitch/virtualtopo/'
 
 
-ovn_nb = 'tcp:192.168.15.165:6641'
-ovn_sb = 'tcp:192.168.15.165:6642'
-
 class SimpleSwitchRest13(Controller_IP.ProjectController):
 
     _CONTEXTS = {'wsgi': WSGIApplication}
@@ -62,70 +59,8 @@ class SimpleSwitchRest13(Controller_IP.ProjectController):
     #     self.mac_to_port.setdefault(datapath.id, {})
     
     def get_virtual_topo(self):
-            lswitchs = {}
-            encaps = []
-            chassises = []
-            sb = libovsdb.OVSDBConnection(ovn_sb, "OVN_Southbound")
-            # nb = libovsdb.OVSDBConnection(ovn_nb, "OVN_Northbound")
-
-            # tx_nb = nb.transact()
-            tx_sb = sb.transact()
-
-            # Get logical switch uuid and vni from sb
-            res = tx_sb.row_select(table = "Datapath_Binding",
-                        columns = ["_uuid","tunnel_key"],
-                        where = [])
-            res = tx_sb.row_select(table = "Chassis",
-                        columns = ["_uuid","encaps"],
-                        where = [])
-            res = tx_sb.row_select(table = "Encap",
-                        columns = ["_uuid","ip"],
-                        where = [])
-            try:
-                response = tx_sb.commit()
-                lss = response['result'][0]['rows']
-
-                chassises = response['result'][1]['rows']
-                for chassis in chassises:
-                    chassis['_uuid'] = chassis['_uuid'][1]
-                    chassis['encaps'] = chassis['encaps'][1]
-
-                encaps = response['result'][2]['rows']
-                for encap in encaps:
-                    encap['_uuid'] = encap['_uuid'][1]
-            except:
-                return response, False
-            else:
-                for ls in lss:
-                    attr = {}
-                    attr['vni'] = ls.get('tunnel_key')
-                    attr['ports'] = []
-                    uuid = ls.get('_uuid')[1]
-
-                    response = tx_sb.row_select(table = "Port_Binding",
-                                        columns = ['mac','tunnel_key','chassis'],
-                                        where = [["datapath", "==", ["uuid",uuid]]])
-                    try :
-                        res = tx_sb.commit()
-                        lps = res['result'][0]['rows']
-                        lports = []
-                        for lp in lps:
-                            temp = {'inner_ip': '', 'outter_ip': '', 'tunnel_key': ''}
-                            for chassis in chassises:
-                                if chassis['_uuid'] == lp.get('chassis')[1]:
-                                    for encap in encaps:
-                                        if encap['_uuid'] == chassis['encaps']:
-                                            temp['outter_ip'] = encap['ip']
-
-                            temp['inner_ip'] = re.findall( r'[0-9]+(?:\.[0-9]+){3}', lp.get('mac'))[0]
-                            temp['tunnel_key'] = int(lp.get('tunnel_key'))
-                            lports.append(temp)
-                    except:
-                        return response,False
-                    else:
-                        attr['ports'] = lports
-                        lswitchs[ls.get('_uuid')[1]] = attr
-            result = list(lswitchs.values())
+            self.get_virtual_topology()
+            result = list(self.lswitchs.values())
             return result, True
 
     def get_switch_all(self):    
@@ -183,7 +118,6 @@ class SimpleSwitchRest13(Controller_IP.ProjectController):
         
         return resp, True
         
-            
   
     def set_request(self, entry):
         # self.logger.info("ITS GO IN HERE")
