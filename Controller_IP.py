@@ -628,12 +628,12 @@ class ProjectController(app_manager.RyuApp):
                             eth_type=0x0800, 
                             ip_proto=ip_proto,
                             
-                            ipv4_src=ip_src, 
-                            ipv4_dst=ip_dst,
+                            # ipv4_src=ip_src, 
+                            # ipv4_dst=ip_dst,
                             udp_dst=dst_port,
                             
-                            tun_ipv4_src=vx_src,
-                            tun_ipv4_dst=vx_dst,
+                            tun_ipv4_src=ip_src,
+                            tun_ipv4_dst=ip_dst,
 
                             tunnel_id = vni
                         )
@@ -1404,8 +1404,10 @@ class ProjectController(app_manager.RyuApp):
             match_vni = ofp_parser.OFPMatch(
                             eth_type=0x0800, 
                             ip_proto=17,
-                            ipv4_src=src_ip, 
-                            ipv4_dst=dst_ip,
+                            # src_tun=src_ip, 
+                            # dst_tun=dst_ip,
+                            tun_ipv4_src=src_ip,
+                            tun_ipv4_dst=dst_ip,
                             udp_dst=4789,
                             tunnel_id = int(vni)
                         )
@@ -1421,9 +1423,9 @@ class ProjectController(app_manager.RyuApp):
         self.add_flow(datapath, 1, match_arp , actions,IDLE_TIMEOUT)
         
     # Return 
-    #    None if OVN have a same queue  
-    #   "no queue" if OVN don't have queue in link (src_lp <-> dst_lp) 
-    #   "wrong + diff" if OVN have queue in link but don't match in some field => modify queue
+    #   {queue_uuid,None} if OVN have a same queue  
+    #   {None,"no queue"} if OVN don't have queue in link (src_lp <-> dst_lp) 
+    #   {queue_uuid,"wrong + diff"} if OVN have queue in link but don't match in some field => modify queue
     def check_queue_OVN(self,src_lp,dst_lp,min_rate,max_rate=0,burst=0,direction='to-lport'):
         nb = libovsdb.OVSDBConnection(ovn_nb, "OVN_Northbound")
         tx_nb = nb.transact()
@@ -1437,23 +1439,23 @@ class ProjectController(app_manager.RyuApp):
             queue = response['result'][0]['rows'][0]['queue_rules'][1]
         except:
             ret.append("no queue")
-            return ret
+            return None,ret
         else:
             res = tx_nb.row_select(table = "Queue",
                         columns = ["bandwidth_max","bandwidth_min","direction","match"],
-                        where = [["_uuid", "==", ["_uuid",queue]]])
+                        where = [["_uuid", "==", ["uuid",queue]]])
             
             try:
                 response = tx_nb.commit()
                 result = response['result'][0]['rows'][0]
             except:
                 ret.append("no queue")
-                return ret
+                return None,ret
             else: 
                 match = result.get('match').find(src_lp)
                 if match == -1:
                     ret.append("no queue")
-                    return ret
+                    return None,ret
                 
                 bandwidth_max = result.get('bandwidth_max')
                 if bandwidth_max and max_rate:
@@ -1473,7 +1475,34 @@ class ProjectController(app_manager.RyuApp):
                 if direc != direction:
                     ret.append("wrong direction")
 
-                return ret        
+                return queue,ret        
+
+    def  modify_queue_OVN(self,ret,queue_id,src_lp,dst_lp,min_rate,max_rate,burst,direction='to-lport'):
+        nb = libovsdb.OVSDBConnection(ovn_nb, "OVN_Northbound")
+
+        _row = {"direction":"to-lport", "priority":200}
+        max_bw = []
+
+        _row["match"] = "inport==\"" + str(src_lp) + "\""
+        
+        if "wrong bandwidth_max" in ret:
+            if max_rate:
+                max_bw.append(["rate",int(max_rate)])
+            if burst:
+                max_bw.append(["burst",int(burst)])
+            _row["bandwidth_max"] = ["map",max_bw]
+
+        if "wrong bandwidth_min" in ret:
+            _row["bandwidth_min"] = ["map",[["min",int(min)]]]
+        if "wrong direction" in ret:
+           _row["direction"] = direction
+
+        res = nb.update(table = "Logical_Switch_Port",
+                        row = _row,
+                        where = [["_uuid", "==", ["uuid",queue_id]]])
+        if res and res.get("uuid"):
+            return True
+        return False
 
     def  new_queue_OVN(self,src_lp,dst_lp,min_rate,max_rate,burst,direction='to-lport'):
         nb = libovsdb.OVSDBConnection(ovn_nb, "OVN_Northbound")
@@ -1504,8 +1533,7 @@ class ProjectController(app_manager.RyuApp):
 
         if max_bw or min_rate != None:
             res = nb.insert(table="Queue", row=_row, refer=_refer)
-            # print(str(insert.get("min")))
-            print("Result: %s" %(json.dumps(res, indent=4)))
+
             if res and res.get("uuid"):
                 return True
         
@@ -1530,15 +1558,15 @@ class ProjectController(app_manager.RyuApp):
         # For now, We only can add queue for virtual links in same lswitch
         if src_vni and src_vni == dst_vni:
             if src_lp and dst_lp:
-                ret = self.check_queue_OVN(src_lp,dst_lp,min_rate,max_rate,burst,direction)
-                if not ret: # Have a same queue in OVN, not do anything
+                queue_uuid, ret = self.check_queue_OVN(src_lp,dst_lp,min_rate,max_rate,burst,direction)
+                if not ret and queue_uuid: # Have a same queue in OVN, not do anything
                     return True
                 
-                if "no queue" in ret: # Add new OVN queue
-                    self.new_queue_OVN()
+                if "no queue" in ret and not queue_uuid: # Add new OVN queue
+                    self.new_queue_OVN(src_lp, dst_lp,min_rate,max_rate,burst,direction)
                     return True
                 else: # Modify OVN queue
-                    self.modify_queue_OVN()
+                    self.modify_queue_OVN(ret,queue_uuid,src_lp, dst_lp,min_rate,max_rate,burst,direction)
                     return True
         return False
            
