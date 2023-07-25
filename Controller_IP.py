@@ -1186,8 +1186,8 @@ class ProjectController(app_manager.RyuApp):
                     # self.logger.info(self.vx_src_dst)
                     self.logger.info("vni_map_src: %s" % self.vni_map_src)
                     self.logger.info("vni_map_hv: %s" % self.vni_map_hv)
-                    self.logger.info("sw_port: %s" % self.sw_port)
-                    self.logger.info("request: %s" % self.request_table)
+                    # self.logger.info("sw_port: %s" % self.sw_port)
+                    # self.logger.info("request: %s" % self.request_table)
 
 
 
@@ -1447,8 +1447,10 @@ class ProjectController(app_manager.RyuApp):
         datapath = self.datapath_list[node]
         ofp = datapath.ofproto
         ofp_parser = datapath.ofproto_parser
-        actions = [ofp_parser.OFPActionSetQueue(queue_id)]
-        actions.append(ofp_parser.OFPActionOutput(out_port))
+        actions = [ofp_parser.OFPActionOutput(out_port)]
+
+        actions_queue = [ofp_parser.OFPActionSetQueue(queue_id)]
+        actions_queue.append(ofp_parser.OFPActionOutput(out_port))
         
         
         match_arp = ofp_parser.OFPMatch(
@@ -1493,23 +1495,25 @@ class ProjectController(app_manager.RyuApp):
                             udp_dst=6081,
                             # tunnel_id = int(vni)
                         )
-            self.add_flow(datapath, 12, match_vni, actions,IDLE_TIMEOUT)
+            self.add_flow(datapath, 12, match_vni, actions_queue,IDLE_TIMEOUT)
         elif vni is not None:
             vni = int(vni)
-            ipvx_src = self.vni_map_hv[src_ip][vni]
-            ipvx_dst = self.vni_map_hv[dst_ip][vni]
+            ipvx_src_list = self.vni_map_hv[src_ip][vni]
+            ipvx_dst_list = self.vni_map_hv[dst_ip][vni]
+            for ipvx_src in ipvx_src_list:
+                for ipvx_dst in ipvx_dst_list:
 
-            src_port = self.vni_map_src[vni][ipvx_src,ipvx_dst]
-            match_vni = ofp_parser.OFPMatch(
-                            eth_type=0x0800, 
-                            ip_proto=17,
-                            ipv4_src=src_ip, 
-                            ipv4_dst=dst_ip,
-                            udp_src=src_port,
-                            udp_dst=6081,
-                            # tunnel_id = int(vni)
-                        )
-            self.add_flow(datapath, 12, match_vni, actions,IDLE_TIMEOUT)
+                    src_port = self.vni_map_src[vni][ipvx_src,ipvx_dst]
+                    match_vni = ofp_parser.OFPMatch(
+                                    eth_type=0x0800, 
+                                    ip_proto=17,
+                                    ipv4_src=src_ip, 
+                                    ipv4_dst=dst_ip,
+                                    udp_src=src_port,
+                                    udp_dst=6081,
+                                    # tunnel_id = int(vni)
+                                )
+                    self.add_flow(datapath, 12, actions_queue, actions,IDLE_TIMEOUT)
         else:
             match_ip = ofp_parser.OFPMatch(
                             eth_type=0x0800, 
@@ -1517,7 +1521,7 @@ class ProjectController(app_manager.RyuApp):
                             ipv4_dst=dst_ip
                             # tunnel_id = int(vni)
                         )
-            self.add_flow(datapath, 2, match_ip, actions,IDLE_TIMEOUT)
+            self.add_flow(datapath, 2, actions_queue, actions,IDLE_TIMEOUT)
                                      
         self.add_flow(datapath, 3, match_icmp, actions,IDLE_TIMEOUT)
                 
@@ -1688,6 +1692,11 @@ class ProjectController(app_manager.RyuApp):
                 resp = "max-rate exceeds link bandwidth"
                 self.logger.info(resp)
                 return resp, False
+            # len(self.vni_map_src[src_ip])
+            if not vm_traffic and int(request.get('max-rate')) > DEFAULT_BW:
+                resp = "max-rate exceeds link bandwidth"
+                self.logger.info(resp)
+                return resp, False
             
             if int(request.get('max-rate')) < 0 :
                 resp = "request cant be negative"
@@ -1806,7 +1815,7 @@ class ProjectController(app_manager.RyuApp):
                         ipv4_dst=dst_ip
                     )
         
-        if vni is not None:
+        if vni is not None and vni != 0:
             match_vni = ofp_parser.OFPMatch(
                             eth_type=0x0800, 
                             ip_proto=17,
