@@ -460,7 +460,7 @@ class ProjectController(app_manager.RyuApp):
 
 
 
-    def install_paths(self, src, first_port, dst, last_port, ip_src, ip_dst,ip_proto,vx_src,vx_dst,src_port,dst_port,src_ip,dst_ip,vni,options):
+    def install_paths(self, src, first_port, dst, last_port, ip_src, ip_dst,ip_proto,vx_src,vx_dst,src_port,dst_port,src_ip,dst_ip,vni):
         # if SHOW_PATH == 1:
         #     self.path_install_cnt +=1
             # self.logger.info("installing path cnt: %d" % (self.path_install_cnt))
@@ -559,122 +559,40 @@ class ProjectController(app_manager.RyuApp):
 
     
                 elif ip_proto == 17:
-                    # match_udp = ofp_parser.OFPMatch(
-                    #     eth_type=0x0800, 
-                    #     ip_proto=17,
-                    #     ipv4_src=ip_src, 
-                    #     ipv4_dst=ip_dst
-                    # )
-
-                    # # Redirect all udp traffic to table 1
-                    # self.add_flow(dp, 10, match_udp, actions,IDLE_TIMEOUT,insts=ofp_parser.OFPInstructionGotoTable(1))
-                    # if  vni < 0: # no tunnel packet
-                    #     no_tun_match = ofp_parser.OFPMatch(
-                    #         tunnel_id = 0,
-                    #         tun_ipv4_src=0,
-                    #         tun_ipv4_dst=0,
-                    #     )
-                    #     # no tunnel packet don't have tunnel_id, tun_src and tun
-                    #     self.add_flow(dp, 1, no_tun_match, actions,IDLE_TIMEOUT)
-                    # else:
-
-                    # test_match = ofp_parser.OFPMatch(
-                    #     tunnel_id = vni,
-                    #     tun_ipv4_src=ip_src,
-                    #     tun_ipv4_dst=ip_dst,
-                    # )
-
-
-                    # match_vni= ofp_parser.OFPMatch(
-                    # eth_type_nxm=0x0800, 
-                    # # in_port_nxm = in_port,
-                    # # ip_proto_nxm=17,
-                    # # tunnel_id = vni,
-                    # ipv4_src=ip_src, 
-                    # ipv4_dst=ip_dst,
-                    # metadata = 0x05
-                    # )
-                    # self.add_flow(dp, 8, match_vni, actions,IDLE_TIMEOUT)
-
+                    # BDF traffic
                     if vni == 0:
                         match_vni= ofp_parser.OFPMatch(
                         eth_type_nxm=0x0800, 
                         # in_port_nxm = in_port,
                         ip_proto_nxm=17,
-                        # metadata = vni,
                         ipv4_src=ip_src, 
                         ipv4_dst=ip_dst,
-                        # tlvs=options
                         udp_src_nxm=src_port,
-                        udp_dst_nxm=dst_port,
-
-                        # tunnel_id_nxm = 0x0,
-                        # tun_ipv4_src=vx_src,
-                        # tun_ipv4_dst=vx_dst,
+                        udp_dst_nxm=dst_port,    
                         )
-                        # self.add_flow(dp, 20, test_match, actions,IDLE_TIMEOUT,table_id=1)
-                        # actions = [ofp_parser.OFPActionSetField(tunnel_id=vni),ofp_parser.OFPActionSetField(tun_ipv4_src=ip_src),ofp_parser.OFPActionSetField(tun_ipv4_dst=ip_dst)]
-                                    
-                        # self.add_flow(dp, 100, match_vni, actions,IDLE_TIMEOUT)
                         if vx_src == "arp":
                             self.add_flow(dp, 4, match_vni, actions,IDLE_TIMEOUT)
                         else:
                             self.add_flow(dp, 8, match_vni, actions,IDLE_TIMEOUT)
-
-
-                    # self.logger.info("Match:",match_vni)
                     else:
-                    #     # tet = vx_src[0:-2] + ".0/255.255.255.0"
-                    #     self.logger.info("Try smt: %s",hex(vni))
                         match_vni= ofp_parser.OFPMatch(
                             eth_type_nxm=0x0800, 
                             # in_port_nxm = in_port,
                             ip_proto_nxm=17,
-                            # metadata = vni,
                             ipv4_src=ip_src, 
                             ipv4_dst=ip_dst,
-                            # tlvs=options
                             udp_src_nxm=src_port,
                             udp_dst_nxm=dst_port,
-                            # tlvs=options
-
-                            # tun_ipv4_src=vx_src,
-                            # tun_ipv4_dst=vx_dst,
-
-
-                            # tun_ipv4_src=vx_dst,
-                            # tun_ipv4_dst=vx_src,
+                            # tunnel_id=int(vni)
 
                         )
-                        # self.add_flow(dp, 20, test_match, actions,IDLE_TIMEOUT,table_id=1)
-                        # actions = [ofp_parser.OFPActionSetField(tunnel_id=vni),ofp_parser.OFPActionSetField(tun_ipv4_src=ip_src),ofp_parser.OFPActionSetField(tun_ipv4_dst=ip_dst)]
-                            
-                        # self.add_flow(dp, 100, match_vni, actions,IDLE_TIMEOUT,insts=ofp_parser.OFPInstructionGotoTable(1))
                         if vx_src == "arp" or vx_dst == "arp":
                             self.add_flow(dp, 4, match_vni, actions,IDLE_TIMEOUT)
                         else:
                             self.add_flow(dp, 12, match_vni, actions,IDLE_TIMEOUT)
 
-
-                # else:
-                    
-                    
-                #     match_ip = ofp_parser.OFPMatch(
-                #         eth_type=0x0800,
-                #         ip_proto=ip_proto,
-                         
-                #         ipv4_src=ip_src, 
-                #         ipv4_dst=ip_dst,
-                #     )
-                #     self.add_flow(dp, 2, match_ip, actions,IDLE_TIMEOUT)        
-
-        
-                    
-                # self.add_flow(dp, 1, match_arp , actions,IDLE_TIMEOUT)
-        
         # print("Path installation finished in ", time.time() - computation_start )
         # print(paths_with_ports[0][src][1])
-        
         return paths_with_ports[src][1]
     
     def install_paths_arp(self, src, first_port, dst, last_port, ip_src, ip_dst,ip_proto,dst_port,src_ip,dst_ip,vni):
@@ -714,9 +632,6 @@ class ProjectController(app_manager.RyuApp):
             ports = defaultdict(list)
             actions = []
         
-
-
-      
             if node in paths_with_ports:
                 in_port = paths_with_ports[node][0]
                 out_port = paths_with_ports[node][1]
@@ -728,14 +643,6 @@ class ProjectController(app_manager.RyuApp):
                 print("\tnode {}: ports{}".format(node,ports) ) 
 
             for in_port in ports:
-                # self.logger.info("VNI: %s"%vni)
-               
-                # match_ip = ofp_parser.OFPMatch(
-                #     eth_type=0x0800, 
-                #     ip_proto = 1,
-                #     ipv4_src=ip_src, 
-                #     ipv4_dst=ip_dst,
-                # )
                 # ARP
                 match_arp = ofp_parser.OFPMatch(
                     eth_type=0x0806, 
@@ -744,19 +651,13 @@ class ProjectController(app_manager.RyuApp):
                 )
             
                 out_ports = ports[in_port]
-
-     
                 # elif len(out_ports) == 1:
                 actions = [ofp_parser.OFPActionOutput(out_ports[0][0])]
-
-
                 # self.add_flow(dp, 3, match_ip, actions,IDLE_TIMEOUT)
                 self.add_flow(dp, 1, match_arp, actions,IDLE_TIMEOUT)
         # print("Path installation finished in ", time.time() - computation_start )
         # print(paths_with_ports[0][src][1])
         return paths_with_ports[src][1]
-    
-
 
     def install_replace_paths(self, src, first_port, dst, last_port, ip_src, ip_dst,p,cost):
         if SHOW_PATH == 1:
@@ -769,20 +670,8 @@ class ProjectController(app_manager.RyuApp):
         pw = cost
         pw = pw[0]         
         
-        # renew:    
-        
-        
-        # pw = []
-        # for path in paths:
-        #     pw.append(self.get_path_cost(path))
-        #     if VERBOSE == 1:
-        #         print(path, "cost = ", pw[len(pw) - 1])
-        # sum_of_pw = sum(pw) * 1.0
         paths_with_ports = self.add_ports_to_paths(paths, first_port, last_port)
         paths_with_ports = paths_with_ports[0]
-        
-        
-        
         switches_in_paths = set().union(*paths)
         # print(switches_in_paths)
         if VERBOSE == 1:
@@ -791,18 +680,14 @@ class ProjectController(app_manager.RyuApp):
             print("#adjacency",self.adjacency)
 
         for node in switches_in_paths:
-
             dp = self.datapath_list[node]
             ofp = dp.ofproto
             ofp_parser = dp.ofproto_parser
-
 
             # pw is total cost of a path (path weight)
             # ports contain inport:(outport,pw)
             ports = defaultdict(list)
             actions = []
-   
-
 
             if node in paths_with_ports:
                 in_port = paths_with_ports[node][0]
@@ -832,7 +717,6 @@ class ProjectController(app_manager.RyuApp):
                 )
                                 
                 actions = [ofp_parser.OFPActionOutput(out_ports[0][0])]
-
 
                 self.add_flow(dp, 32768, match_ip, actions)
                 self.add_flow(dp, 1, match_arp, actions)
@@ -930,7 +814,6 @@ class ProjectController(app_manager.RyuApp):
         self.delete_all_flow(datapath,1)
 
         self.add_flow(datapath, 0, match, actions)
-
 
 
     @set_ev_cls(ofp_event.EventOFPPortDescStatsReply, MAIN_DISPATCHER)
@@ -1093,45 +976,43 @@ class ProjectController(app_manager.RyuApp):
                     vni = vxlan_pkt.vni
                     options = vxlan_pkt.options
                     payload_pkt = pkt[4:]
-                    # payload_pkt = packet.Packet(payload_pkt)
-                    
-                    # pkt_payload = payload_pkt.get_protocol(ipv4.ipv4)
-                    # self.logger.info("\tpaylan_pkt PKT: %s" % payload_pkt)
-                    
+                    # payload_pkt = packet.Packet(payload_pkt)                 
+       
                     ethvx_src = payload_pkt[0].src
                     ethvx_dst = payload_pkt[0].dst
-                    # self.logger.info("\tvxlan_pkt PKT: %s" % pkt)
+                    ethertype = payload_pkt[0].ethertype
+
+                    self.logger.info("\tvxlan_pkt PKT: %s" % pkt)
                     
-                    try:
+                    if (ethertype==0x800):
                         ipvx_src = payload_pkt[1].src
                         ipvx_dst = payload_pkt[1].dst
-
-
-                        # if vni not in self.vni_map_src.keys():
-                        #     self.vni_map_src[vni] = {}
-                        #     self.vni_map_src[vni][ipvx_src]=src_port
-                        # else:
-                        #     if ipvx_src not in self.vni_map_src[vni].keys():
-                        #         self.vni_map_src[vni][ipvx_src]=src_port
-                        #     elif src_port != self.vni_map_src[vni][ipvx_src]:
-                        #         self.vni_map_src[vni][ipvx_src]=src_port
                         
-
-                        # if src_ip not in self.vni_map_hv.keys():
-                        #     self.vni_map_hv[src_ip] = {}
-                        #     self.vni_map_hv[src_ip][vni] = []
-                        #     self.vni_map_hv[src_ip][vni].append(ipvx_src)
-                        # elif vni not in self.vni_map_hv[src_ip].keys():
-                        #     self.vni_map_hv[src_ip][vni] = []
-                        #     self.vni_map_hv[src_ip][vni].append(ipvx_src)
+                        try:
+                            protovx = payload_pkt[1].proto
+                            portvx_src = payload_pkt[2].src_port
+                            portvx_dst = payload_pkt[2].dst_port
+                        except:
+                            portvx_src = 0
+                            portvx_dst = 0
+                        self.logger.info("\tproto inner: %s" %protovx)
+                        self.logger.info("\tsrc port inner: %s" %portvx_src)
+                        self.logger.info("\tdst port inner: %s" %portvx_dst)
 
                         if vni not in self.vni_map_src.keys():
                             self.vni_map_src[vni] = {}
-                            self.vni_map_src[vni].setdefault((ipvx_src,ipvx_dst),)
-                            self.vni_map_src[vni][ipvx_src,ipvx_dst] = src_port
+                            self.vni_map_src[vni].setdefault((ipvx_src,ipvx_dst))
+                            self.vni_map_src[vni][(ipvx_src,ipvx_dst)] = {}
+                            self.vni_map_src[vni][(ipvx_src,ipvx_dst)].setdefault((protovx,portvx_src,portvx_dst))
+                            self.vni_map_src[vni][(ipvx_src,ipvx_dst)][(protovx,portvx_src,portvx_dst)] = src_port
 
                         elif (ipvx_src,ipvx_dst) not in self.vni_map_src[vni].keys():
-                            self.vni_map_src[vni][ipvx_src,ipvx_dst] = src_port
+                            self.vni_map_src[vni][(ipvx_src,ipvx_dst)] = {}
+                            self.vni_map_src[vni][(ipvx_src,ipvx_dst)].setdefault((protovx,portvx_src,portvx_dst))
+                            self.vni_map_src[vni][(ipvx_src,ipvx_dst)][(protovx,portvx_src,portvx_dst)] = src_port
+                        
+                        elif (protovx,portvx_src,portvx_dst) not in self.vni_map_src[vni][(ipvx_src,ipvx_dst)].keys():
+                            self.vni_map_src[vni][(ipvx_src,ipvx_dst)][(protovx,portvx_src,portvx_dst)] = src_port
                                 
 
 
@@ -1145,18 +1026,6 @@ class ProjectController(app_manager.RyuApp):
                         elif ipvx_src not in self.vni_map_hv[src_ip][vni]:
                             self.vni_map_hv[src_ip][vni].append(ipvx_src)
                     
-                        # if dst_ip not in self.vni_map_hv.keys():
-                        #     self.vni_map_hv[dst_ip] = {}
-                        #     self.vni_map_hv[dst_ip][vni] = []
-                        #     self.vni_map_hv[dst_ip][vni].append(ipvx_dst)
-                        # elif vni not in self.vni_map_hv[dst_ip].keys():
-                        #     self.vni_map_hv[dst_ip][vni] = []
-                        #     self.vni_map_hv[dst_ip][vni].append(ipvx_dst)
-                        # elif ipvx_dst not in self.vni_map_hv[dst_ip][vni]:
-                        #     self.vni_map_hv[dst_ip][vni] = []
-                        #     self.vni_map_hv[dst_ip][vni].append(ipvx_dst)
-                        
-                        
 
                         # self.logger.info("\tGeneve options: %s" % options)
                         self.logger.info("\tvni: %s" % vni)
@@ -1164,24 +1033,15 @@ class ProjectController(app_manager.RyuApp):
                         self.logger.info("\tipvx_dst: %s" % ipvx_dst)
                         self.logger.info("vni_map_src: %s" % self.vni_map_src[vni])
 
-
-                        
-                        # self.vx_src_dst.setdefault(ipvx_src,[])
-                        # if ipvx_dst not in self.vx_src_dst[ipvx_src]:
-                        #     self.vx_src_dst[ipvx_src].append(ipvx_dst)
-                            # self.logger.info("geneve PKT: %s" % vxlan_pkt)
-                            # self.logger.info("vxlan_pkt PKT: %s" % self.vx_src_dst)
-                            
-                            
-                            # self.logger.info("\tipvx src: %s\t ipvx dst: %s" % (ipvx_src,ipvx_dst))
-                    except:
+                    elif(ethertype==0x806):
                         ipvx_src = payload_pkt[1].src_ip
                         # if vni not in self.vni_map_src.keys():
                         #     self.vni_map_src[vni] = {}
                         self.logger.info("\vni_map_src arp--: %s : %s" % (ipvx_src,src_port))
                         ipvx_src = "arp"
                         ipvx_dst = "arp"
-
+                    else:
+                        self.logger.info("\vni_map_src ??--: %s" % (vxlan_pkt))
                         
                     # self.logger.info(self.vx_src_dst)
                     self.logger.info("vni_map_src: %s" % self.vni_map_src)
@@ -1234,7 +1094,7 @@ class ProjectController(app_manager.RyuApp):
                 # self.logger.info("VXPORT %s"%vx_dst_port)
                 
                 #Install path: dpid src, src in_port, dpid dst, dpid in_port, src_ip, dst_ip
-                out_port = self.install_paths(h1[0], h1[1], h2[0], h2[1], src_ip, dst_ip,ip_proto,ipvx_src,ipvx_dst,src_port,dst_port,src_ip, dst_ip, vni,options)
+                out_port = self.install_paths(h1[0], h1[1], h2[0], h2[1], src_ip, dst_ip,ip_proto,ipvx_src,ipvx_dst,src_port,dst_port,src_ip, dst_ip, vni,)
                 # self.install_paths(h2[0], h2[1], h1[0], h1[1], dst_ip, src_ip,ip_proto,ipvx_dst,ipvx_src,dst_port,src_port,src_ip, dst_ip, vni, options) # reverse
          
             
@@ -1484,36 +1344,40 @@ class ProjectController(app_manager.RyuApp):
             vni = int(vni)
             ipvx_src = vm_traffic[0]
             ipvx_dst = vm_traffic[1]
-
-            src_port = self.vni_map_src[vni][ipvx_src,ipvx_dst]
-            match_vni = ofp_parser.OFPMatch(
-                            eth_type=0x0800, 
-                            ip_proto=17,
-                            ipv4_src=src_ip, 
-                            ipv4_dst=dst_ip,
-                            udp_src=src_port,
-                            udp_dst=6081,
-                            # tunnel_id = int(vni)
-                        )
-            self.add_flow(datapath, 12, match_vni, actions_queue,IDLE_TIMEOUT)
+            for port in self.vni_map_src[vni][ipvx_src,ipvx_dst].values():
+                src_port =  port
+                match_vni = ofp_parser.OFPMatch(
+                                eth_type=0x0800, 
+                                ip_proto=17,
+                                ipv4_src=src_ip, 
+                                ipv4_dst=dst_ip,
+                                udp_src=src_port,
+                                udp_dst=6081,
+                                # tunnel_id = int(vni)
+                            )
+                self.add_flow(datapath, 12, match_vni, actions_queue,IDLE_TIMEOUT)
         elif vni is not None:
             vni = int(vni)
             ipvx_src_list = self.vni_map_hv[src_ip][vni]
             ipvx_dst_list = self.vni_map_hv[dst_ip][vni]
             for ipvx_src in ipvx_src_list:
                 for ipvx_dst in ipvx_dst_list:
+                    for port in self.vni_map_src[vni][ipvx_src,ipvx_dst].values():
+                        src_port = port
+                        match_vni = ofp_parser.OFPMatch(
+                                        eth_type=0x0800, 
+                                        ip_proto=17,
+                                        ipv4_src=src_ip, 
+                                        ipv4_dst=dst_ip,
+                                        udp_src=src_port,
+                                        udp_dst=6081,
+                                        # tunnel_id = int(vni)
+                                    )
+                        if vni == 0:
+                            self.add_flow(datapath, 8, match_vni, actions_queue,IDLE_TIMEOUT)
+                        else:
+                            self.add_flow(datapath, 12, match_vni, actions_queue,IDLE_TIMEOUT)
 
-                    src_port = self.vni_map_src[vni][ipvx_src,ipvx_dst]
-                    match_vni = ofp_parser.OFPMatch(
-                                    eth_type=0x0800, 
-                                    ip_proto=17,
-                                    ipv4_src=src_ip, 
-                                    ipv4_dst=dst_ip,
-                                    udp_src=src_port,
-                                    udp_dst=6081,
-                                    # tunnel_id = int(vni)
-                                )
-                    self.add_flow(datapath, 12, actions_queue, actions,IDLE_TIMEOUT)
         else:
             match_ip = ofp_parser.OFPMatch(
                             eth_type=0x0800, 
@@ -1521,7 +1385,7 @@ class ProjectController(app_manager.RyuApp):
                             ipv4_dst=dst_ip
                             # tunnel_id = int(vni)
                         )
-            self.add_flow(datapath, 2, actions_queue, actions,IDLE_TIMEOUT)
+            self.add_flow(datapath, 2, match_ip, actions_queue,IDLE_TIMEOUT)
                                      
         self.add_flow(datapath, 3, match_icmp, actions,IDLE_TIMEOUT)
                 
@@ -1648,6 +1512,9 @@ class ProjectController(app_manager.RyuApp):
 
     def handle_request(self,request,path,src_ip,dst_ip,vni,vm_traffic):
         self.logger.info("RES: %s"%request)
+        req_num = 1
+        if vni and not vm_traffic:
+            req_num = len(self.vni_map_hv[src_ip][int(vni)])*len(self.vni_map_hv[src_ip][int(vni)])
         
         if not request.get('max-rate') and not request.get('min-rate'):
             resp = "Wrong rate request"
@@ -1688,16 +1555,11 @@ class ProjectController(app_manager.RyuApp):
         
         if request.get('max-rate'):
             
-            if int(request.get('max-rate')) > DEFAULT_BW:
-                resp = "max-rate exceeds link bandwidth"
+            if int(request.get('max-rate'))*req_num > DEFAULT_BW:
+                resp = "max-rate exceeds link bandwidth: \nThere are %d traffics bind to this demand" % req_num
                 self.logger.info(resp)
                 return resp, False
-            # len(self.vni_map_src[src_ip])
-            if not vm_traffic and int(request.get('max-rate')) > DEFAULT_BW:
-                resp = "max-rate exceeds link bandwidth"
-                self.logger.info(resp)
-                return resp, False
-            
+           
             if int(request.get('max-rate')) < 0 :
                 resp = "request cant be negative"
                 self.logger.info(resp)
@@ -1721,7 +1583,7 @@ class ProjectController(app_manager.RyuApp):
             self.request_id += 1   
             resp = "Request accepted"  
             return resp, True
-        
+
         if request.get('max-rate'):
             if int(request.get('min-rate')) > int(request.get('max-rate')):
                 resp = "Invalid min request: Minrate > Maxrate"
@@ -1741,13 +1603,15 @@ class ProjectController(app_manager.RyuApp):
             if paths[index] == path:  
                 break
         self.logger.info("BAND:%s",pw)
-        for avai_bw in pw[index]:
-            if avai_bw <= min_rate:
-                resp = "Reject: Minrate %s >= available bw: %s",min_rate,avai_bw
-                self.logger.info(resp)
-                return resp, False
 
         
+        for avai_bw in pw[index]:
+            if avai_bw <= min_rate*req_num:
+                resp = "Reject: Minrate %s >= available bw: %s \
+                \n(demand was bind to %s traffic)",min_rate,avai_bw,req_num
+                self.logger.info(resp)
+                return resp, False
+       
         check = self.check_demand(path,vni,src_ip,dst_ip)
         if check == False:
             # Need to modify old queue/qos
@@ -1760,9 +1624,9 @@ class ProjectController(app_manager.RyuApp):
             e1 = self.adjacency[s1][s2]
             self.min_queue_config.setdefault(s1,{})
             self.min_queue_config[s1].setdefault(e1,0)
-            self.min_queue_config[s1][e1]+=min_rate
+            self.min_queue_config[s1][e1]+=min_rate*req_num
             
-        self.min_queue_config[path[-1]][h2[1]]+=min_rate
+        self.min_queue_config[path[-1]][h2[1]]+=min_rate*req_num
         
         self.request_table.setdefault(self.request_id,{})
         self.request_table[self.request_id]={'request':request,'path':path,
@@ -1815,7 +1679,7 @@ class ProjectController(app_manager.RyuApp):
                         ipv4_dst=dst_ip
                     )
         
-        if vni is not None and vni != 0:
+        if vni>0:
             match_vni = ofp_parser.OFPMatch(
                             eth_type=0x0800, 
                             ip_proto=17,
