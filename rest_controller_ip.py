@@ -15,7 +15,9 @@
 
 import json
 
-import Controller_IP
+# import Controller_IP
+import Controller_Tun
+
 from ryu.controller import ofp_event
 from ryu.controller.handler import CONFIG_DISPATCHER
 from ryu.controller.handler import set_ev_cls
@@ -35,7 +37,7 @@ path_url = '/simpleswitch/path/'
 path_find_url = '/simpleswitch/pathfind/'
 host_url = '/simpleswitch/host/'
 
-class SimpleSwitchRest13(Controller_IP.ProjectController):
+class SimpleSwitchRest13(Controller_Tun.ProjectController):
 
     _CONTEXTS = {'wsgi': WSGIApplication}
 
@@ -62,6 +64,7 @@ class SimpleSwitchRest13(Controller_IP.ProjectController):
         self.logger.info("sw_list: %s\nport_list: %s"%(sw_list,port_list))
         resp["sw_list"] = sw_list
         resp["port_list"] = port_list
+
         return resp, True
         
     def get_switch(self,node=None):
@@ -93,6 +96,12 @@ class SimpleSwitchRest13(Controller_IP.ProjectController):
         resp['dpid'] = []
         resp['inport'] = []
         resp['ip'] = []
+        resp['vm_ip'] = []
+        resp['vni'] = []
+        resp['src_vm_ip'] = []
+        resp['src_vm_port'] = []
+        resp['dst_vm_ip'] = []
+
         for host in self.hosts.keys():
             resp['host'].append(host)
             sw = self.hosts[host][0]
@@ -102,7 +111,40 @@ class SimpleSwitchRest13(Controller_IP.ProjectController):
             
             resp['dpid'].append(sw)   
             resp['inport'].append(port_name)
+            ip = ip[0]
             resp['ip'].append(ip)
+            vm_ip = []
+          
+
+            if ip in self.vni_map_hv.keys():
+                for vni in self.vni_map_hv[ip]:
+                    if vni == 0:
+                        continue
+                    for vm in self.vni_map_hv[ip][vni]:
+                        if vm in vm_ip:
+                            continue
+                        vm_ip.append(vm)
+                 
+
+            resp['vm_ip'].append(vm_ip)
+
+        for vni in self.vni_map_src.keys():
+            # if vni == 0:
+            #     continue
+            for src_vm_ip,dst_vm_ip in self.vni_map_src[vni].keys():
+                resp['vni'].append(vni)
+                resp['src_vm_ip'].append(src_vm_ip)
+                resp['dst_vm_ip'].append(dst_vm_ip)
+                ports =  list(self.vni_map_src[vni][src_vm_ip,dst_vm_ip].values())
+                resp['src_vm_port'].append(ports)
+
+
+
+
+
+            # self.logger.info("DONE paths:%s\npw:%s"%(paths,pw))
+            # resp['vni'].append(vni_list)
+            
             
         self.logger.info("RESP:%s"%resp)
         
@@ -115,14 +157,13 @@ class SimpleSwitchRest13(Controller_IP.ProjectController):
         resp = ""
         cond = False
         DO_SET_REQUEST = True
-        DO_MOD = False
+        path = []
+        vm_src = None
+        vm_dst = None
         for id in self.request_table:
+            
             if self.request_table[id]['vni'] != entry["vni"]:
                 continue
-            
-            if self.request_table[id]['path'] != entry["path"]:
-                continue
-            
             
             
             if self.request_table[id]['src_ip'] != entry["src_ip"]:
@@ -131,23 +172,37 @@ class SimpleSwitchRest13(Controller_IP.ProjectController):
             if self.request_table[id]['dst_ip'] != entry["dst_ip"]:
                 continue
 
+            
+            
+            if entry["vm_traffic"]:
+                vm_src = entry["vm_src"]
+                vm_dst = entry["vm_dst"]
+                if self.request_table[id]['vm_bind'] == (vm_src,vm_dst):
+                    continue
+                
             if self.request_table[id]['request'] == entry["request"]:
                 return "Duplicate request", False
             
-
             if "mod" not in list(entry.keys()) or not entry["mod"]:
                 resp = "Duplicate request (Not a modding request): %s/ %s" %(entry.keys(),entry["mod"])
                 return resp , False
             
             
-
-
+            path =  self.request_table[id]['path']
+            if not entry['vm_traffic']:
+                path = entry['path']
+            
             DO_SET_REQUEST = False
+            
 
             self.logger.info("Mod Request")
-            resp,cond = self.handle_request_mod(self.request_table[id],entry["request"])
+            resp,cond = self.handle_request_mod(self.request_table[id],entry["request"],path)
             if cond == True:
                 self.request_table[id]['request']  = entry["request"]
+                self.request_table[id]['path']  = path
+
+                self.change = True
+
             break
             
             
@@ -160,7 +215,12 @@ class SimpleSwitchRest13(Controller_IP.ProjectController):
             #                                     'dst_ip':entry['dst_ip'],}
             # self.request_id += 1
             self.logger.info("New Request")
-            resp,cond = self.handle_request(entry['request'],entry['path'],entry['src_ip'],entry['dst_ip'],entry['vni'])
+            if not entry['vm_traffic']:
+                path = entry['path']
+            else:
+                vm_src = entry["vm_src"]
+                vm_dst = entry["vm_dst"]
+            resp,cond = self.handle_request(entry['request'],path,entry['src_ip'],entry['dst_ip'],entry['vni'],vm_src,vm_dst)
         
         
       
@@ -196,8 +256,32 @@ class SimpleSwitchRest13(Controller_IP.ProjectController):
         resp = {}
         resp['paths'] = paths
         resp['pw'] = pw
-        # self.logger.info("DONE paths:%s\npw:%s"%(paths,pw))
-        
+        vm_ip_src = []
+        vm_ip_dst = []
+        if src_ip in self.vni_map_hv.keys():
+            for vni in self.vni_map_hv[src_ip]:
+                if vni == 0:
+                    continue
+                for vm in self.vni_map_hv[src_ip][vni]:
+                        if vm in vm_ip_src:
+                            continue
+                        vm_ip_src.append(vm)
+
+        resp['vm_ip_src'] = vm_ip_src
+
+
+
+        if dst_ip in self.vni_map_hv.keys():
+            for vni in self.vni_map_hv[dst_ip]:
+                if vni == 0:
+                    continue
+                for vm in self.vni_map_hv[dst_ip][vni]:
+                        if vm in vm_ip_dst:
+                            continue
+                        vm_ip_dst.append(vm)
+
+        resp['vm_ip_dst'] = vm_ip_dst
+
         return resp, True
 
 
@@ -292,14 +376,14 @@ class SimpleSwitchController(ControllerBase):
         except ValueError:
             raise Response(status=400)
 
-        try:
-            resp,cond = simple_switch.set_path_find(new_entry)
-            body = json.dumps(resp)
-            if cond == False:
-                return Response(status=500,content_type='application/json', text=body)
-            return Response(content_type='application/json', text=body)
-        except Exception as e:
-                return Response(status=500)
+        # try:
+        resp,cond = simple_switch.set_path_find(new_entry)
+        body = json.dumps(resp)
+        if cond == False:
+            return Response(status=500,content_type='application/json', text=body)
+        return Response(content_type='application/json', text=body)
+        # except Exception as e:
+        #         return Response(status=500)
                    
     # @route('simpleswitch', path_url, methods=['GET'])
     # def list_request(self, req, **kwargs):
