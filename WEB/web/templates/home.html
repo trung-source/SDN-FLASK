@@ -13,13 +13,13 @@
 }
 </script>
 
+
 <h1 align='center' class="text-info">Bandwidth Demand</h1>
 <br>
 
-
 <form method="POST" class="card">
     
-    <h3 align='center' class="text-primary card-header">Querry paths from source host to destiantion host</h3>
+    <h3 align='center' class="text-primary card-header">Querry paths from source host to destiantion host (HV)</h3>
     <br>
     <div class="form-row">
         <div class="form-group col-md-6">
@@ -36,6 +36,8 @@
         {% if path_pw %}
         {% set paths = path_pw["paths"] %}
         {% set pw = path_pw["pw"] %}
+        {% set vm_ip_src = path_pw["vm_ip_src"] %}
+        {% set vm_ip_dst = path_pw["vm_ip_dst"] %}
         <table class="table">
             <thead>
               <tr>
@@ -58,7 +60,27 @@
               {% endfor %}
             </tbody>
           </table>
+          {% if vm_ip_src or vm_ip_dst %}
+          <table class="table">
+            <thead>
+              <tr>
+                <th scope="col">IP</th>
+                <th scope="col">VM in Hypervisor</th>
+              </tr>
+            </thead>
+            <tbody>   
+              <tr>
+                <th scope="row"> {{ src_ip_find }}</th>
+                <td>{{ vm_ip_src }}</td>
+              </tr>
+              <tr>
+                <th scope="row"> {{ dst_ip_find }}</th>
+                <td>{{ vm_ip_dst }}</td>
+              </tr>
+            </tbody>
+          </table>
           {% endif %}
+        {% endif %}
     </div>
     
 
@@ -69,7 +91,6 @@
     </div>
     
 </form>
-
     <br><br>
     <form method="POST" class="card">
         {% if demand %}
@@ -79,7 +100,7 @@
         {% set path_request = demand["path_request"] %}
         {% set mod = demand["modcheck"] %}
         {% endif %}
-        <h3 align='center' class="text-primary card-header">Bandwidth Demand Request</h3>
+        <h3 align='center' class="text-primary card-header">Bandwidth Demand Request (Provider Traffic)</h3>
 
         <br>
         <div class="form-row">
@@ -117,8 +138,12 @@
             </div>
             <div class="form-group col-md-6">
                 <label for="destiantion" class="font-alt font-size-14 text-info">Path:</label>
-                <input type="text" name="path_request" class="form-control" value="{{ path_request }}" placeholder="ex: 1,2,3">
-            </div>
+                {% if path_request %}
+                <input type="text" name="path_request" class="form-control" value="{{ path_request }}" placeholder="ex: 1,2,3 or None for optimal path">
+                {% else %}
+                <input type="text" name="path_request" class="form-control" value="None" placeholder="ex: 1,2,3 or None for optimal path">
+                {% endif %}
+              </div>
         </div>  <div class="col-sm-10">
         <div class="form-check center">
           {% if mod %}
@@ -134,10 +159,117 @@
                 Submit
             </button>
         </div>
-    </form>
+  </form>
+
+  <br><br>
+  <form method="POST" class="card">
+      {% if demand_vm %}
+      {% set src_ip_vm_req = demand_vm["src_ip_request"] %}
+      {% set dst_ip_vm_req = demand_vm["dst_ip_request"] %}
+      {% set vni_vm = demand_vm["vni"] %}
+      {% set mod_vm = demand_vm["modcheck_vm"] %}
+      {% endif %}
+      <h3 align='center' class="text-primary card-header">Bandwidth Demand Request (VM traffic + Provider traffic)</h3>
+
+      <br>
+      <div class="form-row">
+          <div class="form-group col-md-6">
+              <label for="source" class="font-alt font-size-14 text-info">Source IP of VM:</label>
+              
+              <input type="text" name="src_ip_vm_req" class="form-control" value="{{ src_ip_vm_req }}" placeholder="xxx.xxx.xxx.xxx">
+          </div>
+          <div class="form-group col-md-6">
+              <label for="destiantion" class="font-alt font-size-14 text-info">Destination IP of VM:</label>
+              <input type="text" name="dst_ip_vm_req" class="form-control" value="{{ dst_ip_vm_req }}" placeholder="xxx.xxx.xxx.xxx">
+          </div>
+      </div> 
+      <div class="form-row">
+          <div class="form-group col-md-6">
+              <label for="source" class="font-alt font-size-14 text-info">Max Rate(bit/s)</label>
+              
+              <input type="text" name="max-rate-vm" id="max-rate-vm" oninput="seprator(this)" class="form-control" value="{{ max_rate_vm }}" placeholder="max-rate">
+          </div>
+          <div class="form-group col-md-6">
+              <label for="destiantion" class="font-alt font-size-14 text-info">Min rate(bit/s):</label>
+              <input type="text" name="min-rate-vm" id="min-rate-vm" oninput="seprator(this)" class="form-control" value="{{ min_rate_vm }}" placeholder="min-rate">
+          </div>
+      </div> 
+      <div class="form-check center">
+        {% if mod_vm %}
+        <input type="checkbox" class="form-check-input" name="modcheck_vm" id="mod_check" checked>
+        {% else %}
+        <input type="checkbox" class="form-check-input" name="modcheck_vm" id="mod_check">
+        {% endif %}
+        <label class="form-check-label" for="mod_check_vm">Moding old Request</label>
+      </div>
+    </div>
+      <div align="center">
+          <button type="submit" id="form3-submit" name="form3-submit" class='btn btn-primary'>
+              Submit
+          </button>
+      </div>
+  </form>
 
     <br> <br> <br>
+
 <h1 align='center'>Topology Information</h1>
+
+{% if virutal_topo %}
+<h2>Logical Information (OVN)</h2>
+  <div class="form-group table-responsive">
+    <table class="table">
+        <thead>
+          <tr>
+            <th scope="col">Inner IP</th>
+            <th scope="col">Outter IP</th>
+            <th scope="col">VNI</th>
+            <!-- <th scope="col">Local Port Number</th> -->
+          </tr>
+        </thead>
+        <tbody>
+        {% for ls in virutal_topo %}
+          {% set vni = ls["vni"]%}
+          {% set lsps = ls["ports"]%}
+          {% for lsp in lsps%}
+          {% if lsp["outter_ip"] %}
+            <tr>
+              <th scope="row"> {{ lsp["inner_ip"][0] }}</th>
+              <th scope="row"> {{ lsp["outter_ip"] }}</th>
+              <th scope="row"> {{ vni }}</th>
+            </tr>
+            {% endif %}
+          {% endfor %}
+        {% endfor %}
+        </tbody>
+      </table>
+  </div>
+    {% if bw_resv %}
+    <div class="form-group table-responsive">
+      <table class="table">
+          <thead>
+            <tr>
+              <th scope="col">HV IP</th>
+              <th scope="col">Reserve Bandwidth in HV</th>
+              <!-- <th scope="col">Local Port Number</th> -->
+            </tr>
+          </thead>
+          <tbody>
+          {% set outer_ips = bw_resv["outer_ip"]%}
+          {% for outer_ip in outer_ips %}
+            {% set resv_bw = bw_resv[outer_ip]%}
+              <tr>
+                <th scope="row"> {{ outer_ip }}</th>
+                <th scope="row"> {{ resv_bw }}</th>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+    </div>
+    {% endif %}
+
+  {% endif %}
+
+<h2 align='center' class="text-info">SDN Information</h2>
 <h2>Switch Information</h2>
 <div class="row card">
     <ul class="font-awesome">All Switches in Topology: 
@@ -179,6 +311,14 @@
             {% set dpids = host_list["dpid"] %}
             {% set ips = host_list["ip"] %}
             {% set inports = host_list["inport"] %}
+            {% set vm_ips = host_list["vm_ip"] %}
+            {% set src_vm_ips = host_list["src_vm_ip"] %}
+            {% set dst_vm_ips = host_list["dst_vm_ip"] %}
+            {% set src_vm_ports = host_list["src_vm_port"] %}
+            {% set vnis = host_list["vni"] %}
+
+
+
             <table class="table">
                 <thead>
                   <tr>
@@ -187,6 +327,8 @@
                     <th scope="col">IP</th>
                     <th scope="col">Inport</th>
                     <th scope="col">Switch ID</th>
+                    <th scope="col">VM in Hypervisor</th>
+
                   </tr>
                 </thead>
                 <tbody>
@@ -197,10 +339,37 @@
                     <td>{{ ips[loop.index0] }}</td>
                     <td>{{ inports[loop.index0] }}</td>
                     <td>{{ dpids[loop.index0] }}</td>
+                    <td>{{ vm_ips[loop.index0] }}</td>
+
                   </tr>
                   {% endfor %}
                 </tbody>
               </table>
+            {% if src_vm_ips %}
+            <table class="table">
+                <thead>
+                  <tr>
+                    <th scope="col">#</th>
+                    <th scope="col">Source IP (Inner pkt)</th>
+                    <th scope="col">Destination IP (Inner pkt)</th>
+                    <th scope="col">VNI binding traffic</th>
+                    <th scope="col">Source UDP port</th>
+
+                  </tr>
+                </thead>
+                <tbody>
+                {% for src_vm_ip in src_vm_ips %}
+                  <tr>
+                    <th scope="row"> {{ loop.index }}</th>
+                    <td>{{ src_vm_ip }}</td>
+                    <td>{{ dst_vm_ips[loop.index0] }}</td>
+                    <td>{{ vnis[loop.index0] }}</td>
+                    <td>{{ src_vm_ports[loop.index0] }}</td>
+                  </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+              {% endif %}
               {% endif %}
         </div>
     </ul>
