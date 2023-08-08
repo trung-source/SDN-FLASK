@@ -13,10 +13,15 @@ path_find_url = ryu_ip + '/simpleswitch/pathfind/'
 
 host_url = ryu_ip +'/simpleswitch/host/'
 
-DEFAULT_OVN_BW = "1,000,000,000"
-DEFAULT_OVN_BW = DEFAULT_OVN_BW.replace(",", "")
-DEFAULT_OVN_BW = int(DEFAULT_OVN_BW)
+# DEFAULT_OVN_BW = "1,000,000,000"
+# DEFAULT_OVN_BW = DEFAULT_OVN_BW.replace(",", "")
+# DEFAULT_OVN_BW = int(DEFAULT_OVN_BW)
+# HFSC take almost 0.95 of link BW
+DEFAULT_OVN_BW = 1000000000
+DEFAULT_OVN_BW = 100000000
 
+# DEFAULT_OVN_BW = int(1000000000/0.97)
+QUEUE_TYPE = 'linux-hfsc'
 
 def get_virtual_topo():
     lswitch = {}
@@ -130,20 +135,23 @@ def get_bw_ovn_all(virtual_topo):
             # if not re["queue_rules"]:
             #     continue
         bw_min_sum = 0
-        for queue_rule in res[0]["queue_rules"]:
-            if type(queue_rule) == list:
-                queue_rule = queue_rule[1]
-            re = db.select(table = "Queue",
-            # columns = ["_uuid", "bandwidth_min"],
-            # where = [])
-            where = [["_uuid", "==", ["uuid",queue_rule]]])
-            # print(re)
-            if not re:
-                continue
-            for r in re:
-                if not r["bandwidth_min"]:
+        try:
+            for queue_rule in res[0]["queue_rules"]:
+                if type(queue_rule) == list:
+                    queue_rule = queue_rule[1]
+                re = db.select(table = "Queue",
+                # columns = ["_uuid", "bandwidth_min"],
+                # where = [])
+                where = [["_uuid", "==", ["uuid",queue_rule]]])
+                # print(re)
+                if not re:
                     continue
-                bw_min_sum += int(r["bandwidth_min"][0][1])
+                for r in re:
+                    if not r["bandwidth_min"]:
+                        continue
+                    bw_min_sum += int(r["bandwidth_min"][0][1])
+        except:
+            pass
         min_rate = DEFAULT_OVN_BW - bw_min_sum
         min_rate = f"{min_rate:,}"
         bw_min_list[ip]=min_rate
@@ -190,7 +198,7 @@ def put_demand(path,src_ip,dst_ip,vni,max_rate,min_rate,mod):
     
     return x
 
-def put_demand_vm(src_ip,dst_ip,max_rate,min_rate,mod,virtual_topo):
+def put_demand_vm(src_ip,dst_ip,max_rate,min_rate,mod,virtual_topo,vni):
     # Remove input format (X,XXX,XXX)
     max_rate = (max_rate.replace(",", ""))
     min_rate = (min_rate.replace(",", ""))
@@ -198,11 +206,15 @@ def put_demand_vm(src_ip,dst_ip,max_rate,min_rate,mod,virtual_topo):
     request = {}
     # print(mod)
     
-
+    if vni == "None":
+        vni = None
     if mod == "None":
         mod = None
     demand['mod'] = mod
-    
+    demand['vni'] = vni
+    if vni == None:
+        return "missing vni",False
+    vni = int(vni)
     if max_rate:
         request['max-rate'] = max_rate
     if min_rate:
@@ -213,7 +225,7 @@ def put_demand_vm(src_ip,dst_ip,max_rate,min_rate,mod,virtual_topo):
    
 
     max_rate = int(max_rate or 0)
-    min_rate = int(min_rate or 0)
+    min_rate = int(min_rate or 1)
 
     
 
@@ -222,27 +234,28 @@ def put_demand_vm(src_ip,dst_ip,max_rate,min_rate,mod,virtual_topo):
     # Check in virtual topo where VM belong 
     vm_ip_dict = {}
     for ls in virtual_topo:
-        vni = ls["vni"]
+        vni_loop = ls["vni"]
         lsps = ls["ports"]
         for lsp in lsps:
             if not lsp["outter_ip"]:
                 continue
-            vm_ip_dict[lsp["inner_ip"][0]]=(lsp["outter_ip"],lsp['logical_port'],vni)
-  
-    if src_ip not in vm_ip_dict.keys() or dst_ip not in vm_ip_dict.keys():
-        return "Cant find VM IP in Logical Topology", False
+            vm_ip_dict[(lsp["inner_ip"][0],vni_loop)]=(lsp["outter_ip"],lsp['logical_port'])
+    
+    if (src_ip,vni) not in vm_ip_dict or (dst_ip,vni) not in vm_ip_dict:
+        resp = "%s \n%s" %((src_ip,vni),vm_ip_dict)
+        return "Cant find VM IP in Logical Topology"+resp, False
     bw_ovn_resv = get_bw_ovn_all(virtual_topo)
-    if vm_ip_dict[src_ip][0] == vm_ip_dict[dst_ip][0]:
+    if vm_ip_dict[(src_ip,vni)][0] == vm_ip_dict[(dst_ip,vni)][0]:
         # Internal VM traffic (check outerport)
         resp = "VM to VM traffic: "
-        resv_min = int(bw_ovn_resv[vm_ip_dict[src_ip][0]].replace(",", ""))
+        resv_min = int(bw_ovn_resv[vm_ip_dict[(src_ip,vni)][0]].replace(",", ""))
 
         if min_rate > resv_min:
             min_rate = f'{min_rate:,}'
             resp += 'Minrate: %s > Resv min rate: %s in HV %s' %\
-            (min_rate,bw_ovn_resv[vm_ip_dict[src_ip][0]],vm_ip_dict[src_ip][0])
+            (min_rate,bw_ovn_resv[vm_ip_dict[(src_ip,vni)][0]],vm_ip_dict[(src_ip,vni)][0])
             return resp, False
-        resp1,cond = handle_ovn_internal(vm_ip_dict[src_ip][1],vm_ip_dict[dst_ip][1],min_rate,max_rate,mod)
+        resp1,cond = handle_ovn_internal(vm_ip_dict[(src_ip,vni)][1],vm_ip_dict[(dst_ip,vni)][1],min_rate,max_rate,mod)
         resp += resp1
         return resp,cond
   
@@ -253,9 +266,9 @@ def put_demand_vm(src_ip,dst_ip,max_rate,min_rate,mod,virtual_topo):
     resp = "HV to HV traffic: \nSDN: "
     
     # demand['vm_traffic'] = (src_ip,dst_ip)
-    demand['src_ip'] = vm_ip_dict[src_ip][0]
-    demand['dst_ip'] = vm_ip_dict[dst_ip][0]
-    demand['vni'] = vm_ip_dict[dst_ip][2]
+    demand['src_ip'] = vm_ip_dict[(src_ip,vni)][0]
+    demand['dst_ip'] = vm_ip_dict[(dst_ip,vni)][0]
+    # demand['vni'] = vm_ip_dict[dst_ip][2]
     demand['vm_src'] = src_ip
     demand['vm_dst'] = dst_ip
     demand['vm_traffic'] = True
@@ -265,23 +278,25 @@ def put_demand_vm(src_ip,dst_ip,max_rate,min_rate,mod,virtual_topo):
         cond = False
         resp += x.text
         return resp,cond
-    resv_min = int(bw_ovn_resv[vm_ip_dict[src_ip][0]].replace(",", ""))
+    resv_min = int(bw_ovn_resv[vm_ip_dict[(src_ip,vni)][0]].replace(",", ""))
     if min_rate > resv_min:
         min_rate = f'{min_rate:,}'
         resp += 'Minrate: %s > Resv min rate: %s in HV %s' %\
         cond == False
-        (min_rate,bw_ovn_resv[vm_ip_dict[dst_ip][0]],vm_ip_dict[dst_ip][0])
-    resp1,cond1 = handle_ovn_internal(vm_ip_dict[src_ip][1],vm_ip_dict[dst_ip][1],min_rate,max_rate,mod)
+        (min_rate,bw_ovn_resv[vm_ip_dict[(dst_ip,vni)][0]],vm_ip_dict[(dst_ip,vni)][0])
+    resp1,cond1 = handle_ovn_external(vm_ip_dict[(src_ip,vni)][0],vm_ip_dict[(src_ip,vni)][1],vm_ip_dict[(dst_ip,vni)][1],min_rate,max_rate,mod)
+    # resp1,cond1 = handle_ovn_internal(vm_ip_dict[src_ip][1],vm_ip_dict[dst_ip][1],min_rate,max_rate,mod)
+    
     resp += resp1
     if cond == False or cond1 == False:
         return resp, cond
     resp += "\nOVN: "
     
-    resp1 = x.text
+    resp2 = x.text
     
     # print(x.request.url)
     # resp1 = (json.loads(resp1))
-    resp + resp1
+    resp = resp + resp2
     
     return resp,cond
 
@@ -294,17 +309,98 @@ def get_bw_rev_format(virutal_topo):
         bw_resv['outer_ip'] = hv_ip
     return bw_resv
 
+
+
+def mod_request(port,parent_rate,queue_list,src_ip):
+    ovsdb_server = "tcp:"+ src_ip + ":6640"
+    db = libovsdb.OVSDBConnection(ovsdb_server, "Open_vSwitch")
+    get_port = db.select(table = "Port",
+                columns = ['_uuid',"qos"],
+                where = [["name", "==", port]])
+    port_qos = get_port[0]['qos']
+    # print(port_qos)
+    # print("select qos result: %s" %(json.dumps(get_port, indent=4)))
+    if not port_qos:
+        parent_rate = ['map',[["max-rate",parent_rate]]]
+        qos = db.insert(table = "QoS",
+                        row = {"other_config":parent_rate,"type":QUEUE_TYPE},
+                        refer = ["Port", "qos", ["name", "==", port]])
+        # print("QOS: ",qos)
+        get_port = db.select(table = "Port",
+                columns = ['_uuid',"qos"],
+                where = [["name", "==", port]])
+        port_qos = get_port[0]['qos']
+        
+        list_queue = install_queue_port(db,queue_list,port_qos)
+        return list_queue
+    get_queue = db.select(table = "QoS",
+                    columns = ['_uuid',"queues"],
+                    where = [["_uuid", "==", ["uuid",port_qos]]])
+    # print(get_queue[0]['queues'])
+    # print("select qos result: %s" %(json.dumps(get_queue, indent=4)))
+
+    if not get_queue[0]['queues']:
+        list_queue = install_queue_port(db,queue_list,port_qos)
+        return list_queue
+    list_queue = get_queue[0]['queues'].copy()
+    len_queue = len(list_queue)
+    new_queue = []
+    for key in range(len(queue_list)):
+        max_rate = queue_list[key]['max-rate']
+        min_rate = queue_list[key]['min-rate']
+        burst = queue_list[key]['burst']
+
+        config = ['map',[["max-rate",max_rate],["min-rate",min_rate],["burst",burst]]]
+        res = db.insert(table = "Queue",
+                    row = {"other_config":config,"external_ids":['map', [["queue_id",str(len_queue+key+1)]]]},)
+        queue_uuid = res['uuid'][0]
+        resp = {"max-rate":max_rate,"min-rate":min_rate,"burst":burst,"queue_id":len_queue+key+1} 
+        new_queue.append(resp)
+
+        # print(queue_uuid)
+    
+        list_queue.append([len_queue+key+1,['uuid',queue_uuid]])
+    # print(list_queue)
+    res_qos = db.update(table = "QoS",
+                        row = {"queues":['map', list_queue]},
+                        where = [["_uuid", "==", ["uuid",port_qos]]])
+    return new_queue
+    # tx.commit()
+    # print(res_qos)
+
+
+
+def install_queue_port(db,queue_list,port_qos):
+    list_queue = []
+    new_queue = []
+    for key in range(len(queue_list)):
+        max_rate = queue_list[key]['max-rate']
+        min_rate = queue_list[key]['min-rate']
+        burst = queue_list[key]['burst']
+
+        config = ['map',[["max-rate",max_rate],["min-rate",min_rate],["burst",burst]]]
+        res = db.insert(table = "Queue",
+                    row = {"other_config":config,"external_ids":['map', [["queue_id",str(key+1)]]]})
+        # print(res)
+        resp = {"max-rate":max_rate,"min-rate":min_rate,"burst":burst,"queue_id":key+1} 
+        new_queue.append(resp)
+
+        queue_uuid = res['uuid'][0]
+        # print(queue_uuid)
+    
+        list_queue.append([key+1,['uuid',queue_uuid]])
+    # print(list_queue)
+    res_qos = db.update(table = "QoS",
+                        row = {"queues":['map', list_queue]},
+                        where = [["_uuid", "==", ["uuid",port_qos]]])
+    return new_queue
+    # tx.commit()
+    # print(res_qos)
+
 def handle_ovn_internal(src_lp_name,dst_lp_name,min_rate,max_rate,mod):
     db = libovsdb.OVSDBConnection(ovn_nb, "OVN_Northbound")
-    # tx = db.transact()
-    # response = tx.row_select(table = "Logical_Switch_Port",
-    #                 columns = ["queue_rules"],
-    #                 where = [["name", "==", dst_lp_name]])
-    # res = tx.commit()
-
-    # queue_rule_list = res['result'][0]['rows'][0]["queue_rules"]
-    # print(queue_rule_list)
-
+    if not max_rate:
+        max_rate = DEFAULT_OVN_BW
 
     res = db.select(table = "Logical_Switch_Port",
                 columns = ["_uuid", "name"],
@@ -318,11 +414,6 @@ def handle_ovn_internal(src_lp_name,dst_lp_name,min_rate,max_rate,mod):
    
     if not queue_rule_list:
         # New queue
-        # get_source_lp = db.select(table = "Logical_Switch_Port",
-        #             columns = ["_uuid", "name"],
-        #             where = [["name", "==", src_lp_name]])
-        # print("queue:",get_source_lp)
-        
         # match = 'tcp'
         res = db.insert(table = "Queue",
                     row = {"direction":"to-lport","priority":200,
@@ -353,7 +444,7 @@ def handle_ovn_internal(src_lp_name,dst_lp_name,min_rate,max_rate,mod):
                     row = {"direction":"to-lport","priority":200,
                         "match":match,"bandwidth_max":['map',[["rate",max_rate]]],"bandwidth_min":['map',[["min",min_rate]]]},
                     refer = ["Logical_Switch_Port", "queue_rules", ["name", "==", dst_lp_name]])
-            print(res)
+            # print(res)
             return "Success install new queue",True
     elif type(queue_rule_list) == str:
         rule = queue_rule_list
@@ -381,6 +472,114 @@ def handle_ovn_internal(src_lp_name,dst_lp_name,min_rate,max_rate,mod):
         print(res)
         return "Success modify queue",True
 
+
+def handle_ovn_external(src_ip,src_lp_name,dst_lp_name,min_rate,max_rate,mod):
+    db = libovsdb.OVSDBConnection(ovn_nb, "OVN_Northbound")
+    if not max_rate:
+        max_rate = DEFAULT_OVN_BW
+
+    res = db.select(table = "Logical_Switch_Port",
+                columns = ["_uuid", "name"],
+                where = [["name", "==", dst_lp_name]])
+    queue_rule_list = res[0]["queue_rules"]
+    # print("queue:",queue_rule_list)
+
+    # print(json.dumps(queue_rule_list,indent=4))
+    match = 'inport=="%s"' % src_lp_name
+    # match = 'ip'
+   
+    if not queue_rule_list:
+        # New queue
+        # Default Tunnel port name of HV
+        port_tun = "ovn-cca09a-0"
+        queue_new = [{"max-rate":str(max_rate),"min-rate":str(min_rate),"burst":"0"}]
+        queue_ret = mod_request(port_tun,str(DEFAULT_OVN_BW),queue_new,src_ip)
+        # match = 'tcp'
+        queue_id = queue_ret[0]["queue_id"]
+
+        res = db.insert(table = "Queue",
+                    row = {"direction":"to-lport","priority":200,"id_queue":queue_id,
+                        "match":match,"bandwidth_max":['map',[["rate",max_rate]]],"bandwidth_min":['map',[["min",min_rate]]]},
+                    refer = ["Logical_Switch_Port", "queue_rules", ["name", "==", dst_lp_name]])
+        res = db.insert(table = "Queue",
+                    row = {"direction":"from-lport","priority":200,"id_queue":queue_id,
+                        "match":match,"bandwidth_max":['map',[["rate",max_rate]]],"bandwidth_min":['map',[["min",min_rate]]]},
+                    refer = ["Logical_Switch_Port", "queue_rules", ["name", "==", dst_lp_name]])
+        print(res)
+        return "Success install new queue",True
+    elif type(queue_rule_list) == list:
+            for rule in queue_rule_list:
+                print("FIND1 %s"%rule[1])
+                get_source_lp = db.select(table = "Queue",
+                        # columns = ['_uuid',"_uuid"],
+                        where = [["_uuid", "==", ["uuid",rule[1]]]])
+                print(json.dumps(get_source_lp,indent=4))
+                if get_source_lp[0]['match'] != match:
+                    continue
+                if not mod:
+                    print("DUP")
+                    return "Duplicate Request", False
+                # Modify exist queue
+                res = db.update(table = "Queue",
+                        row = {"bandwidth_max":['map',[["rate",max_rate]]],"bandwidth_min":['map',[["min",min_rate]]]},
+                        where = [["_uuid", "==", ["uuid",rule[1]]]])
+                print(res)
+                return "Success modify queue",True
+            # New queue
+             # Default Tunnel port name of HV
+            port_tun = "ovn-cca09a-0"
+            # port_tun = "br-int"
+
+            queue_new = [{"max-rate":str(max_rate),"min-rate":str(min_rate),"burst":"0"}]
+            queue_ret = mod_request(port_tun,str(DEFAULT_OVN_BW),queue_new,src_ip)
+            # match = 'tcp'
+            queue_id = queue_ret[0]["queue_id"]
+            res = db.insert(table = "Queue",
+                    row = {"direction":"to-lport","priority":200,"id_queue":queue_id,
+                        "match":match,"bandwidth_max":['map',[["rate",max_rate]]],"bandwidth_min":['map',[["min",min_rate]]]},
+                    refer = ["Logical_Switch_Port", "queue_rules", ["name", "==", dst_lp_name]])
+            res = db.insert(table = "Queue",
+                    row = {"direction":"from-lport","priority":200,"id_queue":queue_id,
+                        "match":match,"bandwidth_max":['map',[["rate",max_rate]]],"bandwidth_min":['map',[["min",min_rate]]]},
+                    refer = ["Logical_Switch_Port", "queue_rules", ["name", "==", dst_lp_name]])
+            print(res)
+            return "Success install new queue",True
+    elif type(queue_rule_list) == str:
+        rule = queue_rule_list
+        print("FIND2 %s"%rule)
+        get_source_lp = db.select(table = "Queue",
+                # columns = ['_uuid',"_uuid"],
+                where = [["_uuid", "==", ["uuid",rule]]])
+        print(json.dumps(get_source_lp,indent=4))
+        if (get_source_lp[0]['match'] != match):
+            # New Queue
+              # Default Tunnel port name of HV
+            port_tun = "ovn-cca09a-0"
+            queue_new = [{"max-rate":str(max_rate),"min-rate":str(min_rate),"burst":"0"}]
+            queue_ret = mod_request(port_tun,str(DEFAULT_OVN_BW),queue_new,src_ip)
+            # match = 'tcp'
+            queue_id = queue_ret[0]["queue_id"]
+            res = db.insert(table = "Queue",
+                    row = {"direction":"to-lport","priority":200,"id_queue":queue_id,
+                        "match":match,"bandwidth_max":['map',[["rate",max_rate]]],"bandwidth_min":['map',[["min",min_rate]]]},
+                    refer = ["Logical_Switch_Port", "queue_rules", ["name", "==", dst_lp_name]])
+            res = db.insert(table = "Queue",
+                    row = {"direction":"from-lport","priority":200,"id_queue":queue_id,
+                        "match":match,"bandwidth_max":['map',[["rate",max_rate]]],"bandwidth_min":['map',[["min",min_rate]]]},
+                    refer = ["Logical_Switch_Port", "queue_rules", ["name", "==", dst_lp_name]])
+            print(res)
+          
+            return "Success install new queue",True
+        if not mod:
+            # print("DUP")
+            return "Duplicate Request", False
+        # Modify exist queue
+        res = db.update(table = "Queue",
+                row = {"bandwidth_max":['map',[["rate",max_rate]]],"bandwidth_min":['map',[["min",min_rate]]]},
+                where = [["_uuid", "==", ["uuid",rule]]])
+        print(res)
+        return "Success modify queue",True
+
             
 def put_path_find(src_ip,dst_ip):
     demand = {}
@@ -392,7 +591,7 @@ def put_path_find(src_ip,dst_ip):
     return x
 
 def del_qos_all(port):
-    ovsdb_server = 'tcp:192.168.122.230:6640'
+    ovsdb_server = 'tcp:192.168.0.116:6640'
     db = libovsdb.OVSDBConnection(ovsdb_server, "Open_vSwitch")
 
     get_port = db.select(table = "Port",
