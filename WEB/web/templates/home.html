@@ -193,7 +193,16 @@
               <label for="destiantion" class="font-alt font-size-14 text-info">Min rate(bit/s):</label>
               <input type="text" name="min-rate-vm" id="min-rate-vm" oninput="seprator(this)" class="form-control" value="{{ min_rate_vm }}" placeholder="min-rate">
           </div>
-      </div> 
+      </div>  <div class="col-sm-10">
+        <div class="form-group col-md-6">
+          <label for="source" class="font-alt font-size-14 text-info">VNI:</label>
+          
+          {% if vni %}
+          <input type="text" name="vni" class="form-control" value="{{ vni }}" placeholder="vni">
+          {% else %}
+          <input type="text" name="vni" class="form-control" value="None" placeholder="vni">
+          {% endif %}
+      </div>
       <div class="form-check center">
         {% if mod_vm %}
         <input type="checkbox" class="form-check-input" name="modcheck_vm" id="mod_check" checked>
@@ -216,6 +225,7 @@
 
 {% if virutal_topo %}
 <h2>Logical Information (OVN)</h2>
+<div class="row card">
   <div class="form-group table-responsive">
     <table class="table">
         <thead>
@@ -266,7 +276,7 @@
         </table>
     </div>
     {% endif %}
-
+  </div>
   {% endif %}
 
 <h2 align='center' class="text-info">SDN Information</h2>
