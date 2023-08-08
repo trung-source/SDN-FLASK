@@ -44,8 +44,18 @@ import numpy as np
 # Cisco Reference bandwidth = 1 Gbps
 REFERENCE_BW = 1000000000
 
-
+# HFSC take almost 0.95 of link BW
+# DEFAULT_BW = int(1000000000/0.94)
+# DEFAULT_BW = 100000000
 DEFAULT_BW = 1000000000
+# DEFAULT_BW = 100000000
+
+
+# DEFAULT_BW = int(500000000/0.88)
+QUEUE_TYPE = 'linux-hfsc'
+
+# DEFAULT_TP = 1000000000
+
 MAX_PATHS = 10
 
 
@@ -102,7 +112,8 @@ class ProjectController(app_manager.RyuApp):
         self.queue_config = {}
         self.min_queue_config = {}
         
-        self.request_table= {}
+        self.request_table = {}
+        self.host_request = {}
         self.request = {"max-rate":None,"min-rate":None}
         self.vni = None
         self.paths = []
@@ -138,11 +149,11 @@ class ProjectController(app_manager.RyuApp):
         self.del_qos_all(port)
         try:
             if self.queue_config[port]:
-                ovs_bridge.set_qos(port, type='linux-hfsc',
+                ovs_bridge.set_qos(port, type=QUEUE_TYPE,
                                         max_rate=str(DEFAULT_BW),
                                         queues=self.queue_config[port])
             else:
-                ovs_bridge.set_qos(port, type='linux-hfsc',
+                ovs_bridge.set_qos(port, type=QUEUE_TYPE,
                                         max_rate=str(DEFAULT_BW))
         except Exception as msg:
             raise ValueError(msg)
@@ -152,11 +163,11 @@ class ProjectController(app_manager.RyuApp):
         ovs_bridge = bridge.OVSBridge(self.CONF, dpid, ovsdb_server)
         try:
             if self.queue_config[port]:
-                ovs_bridge.set_qos(port, type='linux-hfsc',
+                ovs_bridge.set_qos(port, type=QUEUE_TYPE,
                                         max_rate=str(DEFAULT_BW),
                                         queues=self.queue_config[port])
             else:
-                ovs_bridge.set_qos(port, type='linux-hfsc',
+                ovs_bridge.set_qos(port, type=QUEUE_TYPE,
                                         max_rate=str(DEFAULT_BW))
         except Exception as msg:
             raise ValueError(msg)
@@ -535,16 +546,6 @@ class ProjectController(app_manager.RyuApp):
                     self.add_flow(dp, 3, match_icmp, actions,IDLE_TIMEOUT)        
 
                     # ARP
-                    # match_vni= ofp_parser.OFPMatch(
-                    # eth_type_nxm=0x0800, 
-                    # # in_port_nxm = in_port,
-                    # # ip_proto_nxm=17,
-                    # # tunnel_id = vni,
-                    # ipv4_src=ip_src, 
-                    # ipv4_dst=ip_dst,
-                    # metadata = 0x05
-                    # )
-                    # self.add_flow(dp, 8, match_vni, actions,IDLE_TIMEOUT)
 
                     
                 if ip_proto == 6:
@@ -560,36 +561,33 @@ class ProjectController(app_manager.RyuApp):
     
                 elif ip_proto == 17:
                     # BDF traffic
-                    if vni == 0:
-                        match_vni= ofp_parser.OFPMatch(
+                    # if vni == 0:
+                    #     match_vni= ofp_parser.OFPMatch(
+                    #     eth_type_nxm=0x0800, 
+                    #     # in_port_nxm = in_port,
+                    #     ip_proto_nxm=17,
+                    #     ipv4_src=ip_src, 
+                    #     ipv4_dst=ip_dst,
+                    #     udp_src_nxm=src_port,
+                    #     udp_dst_nxm=dst_port,    
+                    #     )
+                    #     if vx_src == "arp":
+                    #         self.add_flow(dp, 4, match_vni, actions,IDLE_TIMEOUT)
+                    #     else:
+                    #         self.add_flow(dp, 8, match_vni, actions,IDLE_TIMEOUT)
+                    # else:
+                    match_vni= ofp_parser.OFPMatch(
                         eth_type_nxm=0x0800, 
                         # in_port_nxm = in_port,
                         ip_proto_nxm=17,
                         ipv4_src=ip_src, 
                         ipv4_dst=ip_dst,
-                        udp_src_nxm=src_port,
-                        udp_dst_nxm=dst_port,    
-                        )
-                        if vx_src == "arp":
-                            self.add_flow(dp, 4, match_vni, actions,IDLE_TIMEOUT)
-                        else:
-                            self.add_flow(dp, 8, match_vni, actions,IDLE_TIMEOUT)
-                    else:
-                        match_vni= ofp_parser.OFPMatch(
-                            eth_type_nxm=0x0800, 
-                            # in_port_nxm = in_port,
-                            ip_proto_nxm=17,
-                            ipv4_src=ip_src, 
-                            ipv4_dst=ip_dst,
-                            udp_src_nxm=src_port,
-                            udp_dst_nxm=dst_port,
-                            # tunnel_id=int(vni)
+                        # udp_src_nxm=src_port,
+                        udp_dst_nxm=dst_port,
+                        # tunnel_id=int(vni)
 
-                        )
-                        if vx_src == "arp" or vx_dst == "arp":
-                            self.add_flow(dp, 4, match_vni, actions,IDLE_TIMEOUT)
-                        else:
-                            self.add_flow(dp, 12, match_vni, actions,IDLE_TIMEOUT)
+                    )
+                    self.add_flow(dp, 12, match_vni, actions,IDLE_TIMEOUT)
 
         # print("Path installation finished in ", time.time() - computation_start )
         # print(paths_with_ports[0][src][1])
@@ -1146,7 +1144,6 @@ class ProjectController(app_manager.RyuApp):
 
     @set_ev_cls(event.EventSwitchLeave, MAIN_DISPATCHER)
     def switch_leave_handler(self, ev):
-        print(ev)
         switch = ev.switch.dp.id
         if switch in self.switches:
             self.switches.remove(switch)
@@ -1303,7 +1300,7 @@ class ProjectController(app_manager.RyuApp):
             except:
                 continue
     
-    def mod_qos_paths(self,node,vni,src_ip,dst_ip,out_port,queue_id,vm_traffic):
+    def mod_qos_paths(self,node,vni,src_ip,dst_ip,out_port,queue_id):
         datapath = self.datapath_list[node]
         ofp = datapath.ofproto
         ofp_parser = datapath.ofproto_parser
@@ -1340,52 +1337,30 @@ class ProjectController(app_manager.RyuApp):
         #                 ipv4_src=src_ip, 
         #                 ipv4_dst=dst_ip
         #             )
-        if vm_traffic:
-            vni = int(vni)
-            ipvx_src = vm_traffic[0]
-            ipvx_dst = vm_traffic[1]
-            for port in self.vni_map_src[vni][ipvx_src,ipvx_dst].values():
-                src_port =  port
-                match_vni = ofp_parser.OFPMatch(
-                                eth_type=0x0800, 
-                                ip_proto=17,
-                                ipv4_src=src_ip, 
-                                ipv4_dst=dst_ip,
-                                udp_src=src_port,
-                                udp_dst=6081,
-                                # tunnel_id = int(vni)
-                            )
-                self.add_flow(datapath, 12, match_vni, actions_queue,IDLE_TIMEOUT)
-        elif vni is not None:
-            vni = int(vni)
-            ipvx_src_list = self.vni_map_hv[src_ip][vni]
-            ipvx_dst_list = self.vni_map_hv[dst_ip][vni]
-            for ipvx_src in ipvx_src_list:
-                for ipvx_dst in ipvx_dst_list:
-                    for port in self.vni_map_src[vni][ipvx_src,ipvx_dst].values():
-                        src_port = port
-                        match_vni = ofp_parser.OFPMatch(
-                                        eth_type=0x0800, 
-                                        ip_proto=17,
-                                        ipv4_src=src_ip, 
-                                        ipv4_dst=dst_ip,
-                                        udp_src=src_port,
-                                        udp_dst=6081,
-                                        # tunnel_id = int(vni)
-                                    )
-                        if vni == 0:
-                            self.add_flow(datapath, 8, match_vni, actions_queue,IDLE_TIMEOUT)
-                        else:
-                            self.add_flow(datapath, 12, match_vni, actions_queue,IDLE_TIMEOUT)
+        # if vm_traffic:
+        #     vni = int(vni)
+            # ipvx_src = vm_traffic[0]
+            # ipvx_dst = vm_traffic[1]
+            # for port in self.vni_map_src[vni][ipvx_src,ipvx_dst].values():
+            #     src_port =  port
 
-        else:
-            match_ip = ofp_parser.OFPMatch(
-                            eth_type=0x0800, 
-                            ipv4_src=src_ip, 
-                            ipv4_dst=dst_ip
-                            # tunnel_id = int(vni)
-                        )
-            self.add_flow(datapath, 2, match_ip, actions_queue,IDLE_TIMEOUT)
+        match_vni = ofp_parser.OFPMatch(
+                        eth_type=0x0800, 
+                        ip_proto=17,
+                        ipv4_src=src_ip, 
+                        ipv4_dst=dst_ip,
+                        udp_dst=6081,
+                        # tunnel_id = int(vni)
+                    )
+        self.add_flow(datapath, 12, match_vni, actions_queue,IDLE_TIMEOUT)
+      
+            # match_ip = ofp_parser.OFPMatch(
+            #                 eth_type=0x0800, 
+            #                 ipv4_src=src_ip, 
+            #                 ipv4_dst=dst_ip
+            #                 # tunnel_id = int(vni)
+            #             )
+            # self.add_flow(datapath, 2, match_ip, actions_queue,IDLE_TIMEOUT)
                                      
         self.add_flow(datapath, 3, match_icmp, actions,IDLE_TIMEOUT)
                 
@@ -1398,7 +1373,7 @@ class ProjectController(app_manager.RyuApp):
         
 
     
-    def accept_demand(self,request,path,dst_port,vni,src_ip,dst_ip,vm_traffic):
+    def accept_demand(self,request,path,dst_port,vni,src_ip,dst_ip):
         for i in range(len(path)-1):
             s1 = path[i]
             s2 = path[i+1]
@@ -1412,10 +1387,10 @@ class ProjectController(app_manager.RyuApp):
             self.configure_qos(e1_name)
             queue_id = len(self.queue_config[e1_name])-1
             self.request_table[self.request_id]['queue_bind'][e1_name] = queue_id
-            
+            self.host_request[src_ip,dst_ip]['queue_bind'][e1_name] = queue_id
             
             # Install flow qos in ovs
-            self.mod_qos_paths(s1,vni,src_ip,dst_ip,e1,queue_id,vm_traffic)
+            self.mod_qos_paths(s1,vni,src_ip,dst_ip,e1,queue_id)
             
             # Install in OVNDB
             # self.install_ovn(self,queue_id,request)
@@ -1426,13 +1401,14 @@ class ProjectController(app_manager.RyuApp):
         
         queue_id = len(self.queue_config[dst_p_name])-1
         self.configure_qos(dst_p_name)
-        self.mod_qos_paths(path[-1],vni,src_ip,dst_ip,dst_port,queue_id,vm_traffic)
+        self.mod_qos_paths(path[-1],vni,src_ip,dst_ip,dst_port,queue_id)
         self.request_table[self.request_id]['queue_bind'][dst_p_name] = queue_id
+        self.host_request[src_ip,dst_ip]['queue_bind'][dst_p_name] = queue_id
         self.change = True
         # Install in OVNDB
         # self.install_ovn(self,queue_id,request)
             
-    def check_demand(self,path,vni,src_ip,dst_ip):
+    def check_demand(self,path,vni,src_ip,dst_ip,vm_src,vm_dst):
         check_req = True
         for accept_req in self.request_table.values():
             if accept_req['path'] != path:
@@ -1442,6 +1418,8 @@ class ProjectController(app_manager.RyuApp):
             if accept_req['src_ip'] != src_ip:
                 continue
             if accept_req['dst_ip'] != dst_ip:
+                continue
+            if accept_req['vm_bind'] != (vm_src,vm_dst):
                 continue
     
             check_req = False
@@ -1460,7 +1438,10 @@ class ProjectController(app_manager.RyuApp):
             min_rate_list = ['min_rate',request_mod["min-rate"]]
             config.append(min_rate_list)
         if request_mod.get("max-rate"):
-            max_rate_list = ['max_rate',request_mod["max-rate"]]
+            if int(request_mod["min-rate"]) > int(request_mod["max-rate"]):
+                max_rate_list = ['max_rate',request_mod["min-rate"]]
+            else:
+                max_rate_list = ['max_rate',request_mod["max-rate"]]
             config.append(max_rate_list)
 
         self.logger.info("configure: %s",config)
@@ -1480,17 +1461,104 @@ class ProjectController(app_manager.RyuApp):
                             row = {"other_config": ['map',config]},
                             where = [["_uuid", "==", ["uuid",queue_uuid]]])
  
-      
+    def queue_del(self,queue_id,port):
+        db = libovsdb.OVSDBConnection(ovsdb_server, "Open_vSwitch")
+        get_port = db.select(table = "Port",
+                        columns = ['_uuid',"qos"],
+                        where = [["name", "==", port]],)
+        port_qos = get_port[0]['qos']
+        # print(get_port)
+        # print("select qos result: %s" %(json.dumps(port_qos, indent=4)))
 
-    def handle_request_mod(self,request_id,request_mod):
+
+
+        get_queue = db.select(table = "QoS",
+                columns = ['_uuid',"queues"],
+                where = [["_uuid", "==", ["uuid",port_qos]]])
+        # print(get_queue)
+        # print("select qos result: %s" %(json.dumps(get_queue, indent=4)))
+
+        if not get_queue:
+        # self.logger.info("Queue not ref")
+            tx = db.transact()
+            uuid = port_qos
+
+            tx.delete(table = "QoS",
+                    where = [["_uuid", "==", ["uuid",uuid]]])
+            tx.mutate(table = "Port",
+                        where = [["name", "==", port]],
+                        mutations = [tx.make_mutations("qos", "delete", {"uuid": port_qos})])
+            response = tx.commit()
+            # print(response)
+
+        # Queue table delete
+        else:
+            del_queue = None
+            list_queue = get_queue[0]['queues']
+            for queue_key in list_queue:
+                if queue_id == queue_key[0]:
+                    # print(queue_key)
+                    del_queue = queue_key
+        
+            list_queue.remove(del_queue)
+            list_queue = ['map',list_queue]
+            res_qos = db.update(table = "QoS",
+                                row = {"queues": list_queue},
+                                where = [["_uuid", "==", ["uuid",port_qos]]])
+            # print(res_qos)
+            if del_queue:
+                queue_uuid = del_queue[1][1]
+                res = db.delete(table = "Queue",
+                                where = [["_uuid", "==", ["uuid",queue_uuid]]],
+                                referby = ["QoS", port_qos, "queues"])
+                # print(res)
+
+    def handle_request_mod(self,request_id,request_mod,path_mod):
         resp = "Success modify"
         cond = True
         if not request_mod.get("min-rate") and not request_mod.get("max-rate"):
             return "Wrong rate request", False
         self.logger.info("Request_table: %s",request_id)
+        src_ip = request_id["src_ip"]
+        dst_ip = request_id["dst_ip"]
+        if not request_mod.get("min-rate"):
+            # max-rate
+            if self.host_request[src_ip,dst_ip]['request']['max-rate'] <= request_mod['max-rate']:
+                self.host_request[src_ip,dst_ip]['request']['max-rate'] = request_mod['max-rate']
+            if request_id["path"] == path_mod:
+                for port,queue_id in request_id['queue_bind'].items():
+                    self.mod_request(port,queue_id,self.host_request[src_ip,dst_ip]['request'])
+                resp = "Success moding (max-rate)"
+                return resp, True
+            # mod path: dekete all qos then add qos again??
+            
+
+
+        min_rate = int(request_mod.get("min-rate"))
+
+        if request_id["min-rate"]:
+            temp_min = min_rate + int(self.host_request[src_ip,dst_ip]['request']["min-rate"])
+            if temp_min <= DEFAULT_BW:
+                self.host_request[src_ip,dst_ip]['request']["min-rate"] = str(temp_min)
+            else:
+                reject_min = DEFAULT_BW - int(self.host_request[src_ip,dst_ip]['request']["min-rate"])
+                resp = "Reject: Minrate %s >= available bw: %s" % (min_rate,reject_min)
+                return resp, False
+        # else:
+
+        self.logger.info("MOD----------")
+        
         for port,queue_id in request_id['queue_bind'].items():
             self.mod_request(port,queue_id,request_mod)
-            
+
+        if request_id["min-rate"] and request_id["path"] == path_mod:
+            for i in range(len(path_mod)-1):
+                s1 = path_mod[i]
+                s2 = path_mod[i+1]
+                e1 = self.adjacency[s1][s2]
+                self.min_queue_config.setdefault(s1,{})
+                self.min_queue_config[s1].setdefault(e1,0)
+                self.min_queue_config[s1][e1]+=min_rate
         
                     
         return resp,cond
@@ -1510,24 +1578,17 @@ class ProjectController(app_manager.RyuApp):
         # dst_port = h2[2]
 
 
-    def handle_request(self,request,path,src_ip,dst_ip,vni,vm_traffic):
+    def handle_request(self,request,path,src_ip,dst_ip,vni,vm_src,vm_dst):
+        new_queue = False
+    
         self.logger.info("RES: %s"%request)
         req_num = 1
-        if vni and not vm_traffic:
-            req_num = len(self.vni_map_hv[src_ip][int(vni)])*len(self.vni_map_hv[src_ip][int(vni)])
-        
         if not request.get('max-rate') and not request.get('min-rate'):
             resp = "Wrong rate request"
             self.logger.info(resp)
             return resp, False
         
-        if not path:
-            resp = "Wrong path request"
-            self.logger.info(resp)
-            return resp, False
         
-        src = path[0]
-        dst = path[-1]
         if src_ip not in self.arp_table.keys():
             resp = "Host IP not found: %s" % src_ip
             self.logger.info(resp)
@@ -1544,10 +1605,15 @@ class ProjectController(app_manager.RyuApp):
         
         h1 = self.hosts[mac_src]
         h2 = self.hosts[mac_dst]
-        
+        src = h1[0]
+        dst = h2[0]
+
+
         paths,pw = self.get_optimal_paths_qos(src, dst,h1[1],h2[1])
         self.logger.info("paths: %s\npw: %s" %(paths,pw))
-        if path not in paths:
+        if not path:
+            path = paths[0]
+        elif path not in paths:
             resp = "Can`t find path: Path seem to be not correct"
             self.logger.info(resp)
             return resp, False
@@ -1555,7 +1621,7 @@ class ProjectController(app_manager.RyuApp):
         
         if request.get('max-rate'):
             
-            if int(request.get('max-rate'))*req_num > DEFAULT_BW:
+            if int(request.get('max-rate')) > DEFAULT_BW:
                 resp = "max-rate exceeds link bandwidth: \nThere are %d traffics bind to this demand" % req_num
                 self.logger.info(resp)
                 return resp, False
@@ -1567,22 +1633,38 @@ class ProjectController(app_manager.RyuApp):
         
         
         if not request.get('min-rate'):
-            check = self.check_demand(path,vni,src_ip,dst_ip)
-            self.request_table.setdefault(self.request_id,{})
-            self.request_table[self.request_id]={'request':request,'path':path,
-                                                'vni':vni,'src_ip':src_ip,
-                                                'dst_ip':dst_ip,'queue_bind':{}}
+            check = self.check_demand(path,vni,src_ip,dst_ip,vm_src,vm_dst)
             
             if check == False:
                 # Need to modify old queue/qos
                 resp = "Request exist for the same type traffic"
                 return resp, False
             
-            
-            self.accept_demand(request,path,h2[1],vni,src_ip,dst_ip,vm_traffic)   
-            self.request_id += 1   
-            resp = "Request accepted"  
-            return resp, True
+            self.request_table.setdefault(self.request_id,{})
+            self.request_table[self.request_id]={'request':request,'path':path,
+                                                'vni':vni,'src_ip':src_ip,
+                                                'dst_ip':dst_ip,'queue_bind':{},'vm_bind':(vm_src,vm_dst)}
+            # if vm_src:
+            #     self.request_table[self.request_id]["vm_bind"] = (vm_src,vm_dst)
+            self.host_request.setdefault((src_ip,dst_ip),{})
+            if not self.host_request[src_ip,dst_ip]:
+                self.host_request[src_ip,dst_ip]={'request':request,'path':path,
+                                                'queue_bind':{}}
+
+                self.accept_demand(request,path,h2[1],vni,src_ip,dst_ip)   
+                self.request_id += 1   
+                resp = "Request accepted"  
+                return resp, True
+            if self.host_request[src_ip,dst_ip]['request']['max-rate'] <= request['max-rate']:
+                self.host_request[src_ip,dst_ip]['request']['max-rate'] = request['max-rate']
+                
+                for port,queue_id in self.host_request[src_ip,dst_ip]['queue_bind'].items():
+                    self.mod_request(port,queue_id,self.host_request[src_ip,dst_ip]['request'])
+                resp = "Request accepted (SDN mod)"  
+                return resp, True
+            else:
+                resp = "SDN Request unchanged"  
+                return resp, True 
 
         if request.get('max-rate'):
             if int(request.get('min-rate')) > int(request.get('max-rate')):
@@ -1606,13 +1688,13 @@ class ProjectController(app_manager.RyuApp):
 
         
         for avai_bw in pw[index]:
-            if avai_bw <= min_rate*req_num:
-                resp = "Reject: Minrate %s >= available bw: %s \
-                \n(demand was bind to %s traffic)",min_rate,avai_bw,req_num
+            if avai_bw < min_rate:
+                resp = "Reject: Minrate %s > available bw: %s \
+                " % (min_rate,avai_bw)
                 self.logger.info(resp)
                 return resp, False
        
-        check = self.check_demand(path,vni,src_ip,dst_ip)
+        check = self.check_demand(path,vni,src_ip,dst_ip,vm_src,vm_dst)
         if check == False:
             # Need to modify old queue/qos
             resp = "Request exist for the same type traffic"
@@ -1624,22 +1706,43 @@ class ProjectController(app_manager.RyuApp):
             e1 = self.adjacency[s1][s2]
             self.min_queue_config.setdefault(s1,{})
             self.min_queue_config[s1].setdefault(e1,0)
-            self.min_queue_config[s1][e1]+=min_rate*req_num
+            self.min_queue_config[s1][e1]+=min_rate
             
-        self.min_queue_config[path[-1]][h2[1]]+=min_rate*req_num
+        self.min_queue_config[path[-1]][h2[1]]+=min_rate
         
         self.request_table.setdefault(self.request_id,{})
         self.request_table[self.request_id]={'request':request,'path':path,
                                             'vni':vni,'src_ip':src_ip,
-                                            'dst_ip':dst_ip,'queue_bind':{}}
+                                            'dst_ip':dst_ip,'queue_bind':{},'vm_bind':(vm_src,vm_dst)}
+        self.host_request.setdefault((src_ip,dst_ip),{})
+        if not self.host_request[src_ip,dst_ip]:
+            self.host_request[src_ip,dst_ip]={'request':request,'path':path,
+                                                'queue_bind':{}}
+            self.accept_demand(request,path,h2[1],vni,src_ip,dst_ip)  
+            self.request_id += 1    
+            resp = "Request accepted"  
+            return resp, True
+        
+        # MOD REQ
+        temp_min = min_rate + int(self.host_request[src_ip,dst_ip]['request']["min-rate"])
+        if 'max-rate' not in self.host_request[src_ip,dst_ip]['request'].keys():
+            self.host_request[src_ip,dst_ip]['request']['max-rate'] = str(DEFAULT_BW)
+        # elif temp_min > int(self.host_request[src_ip,dst_ip]['request']['max-rate']):
+        #     self.host_request[src_ip,dst_ip]['request']['max-rate'] = str(temp_min)
+        # if request.get("max-rate"):
+        #     if int(self.host_request[src_ip,dst_ip]['request']['max-rate']) <= int(request['max-rate']):
+        #         self.host_request[src_ip,dst_ip]['request']['max-rate'] = request['max-rate']
+        self.host_request[src_ip,dst_ip]['request']["min-rate"] = str(temp_min)
+        for port,queue_id in self.host_request[src_ip,dst_ip]['queue_bind'].items():
+            self.mod_request(port,queue_id,self.host_request[src_ip,dst_ip]['request'])
+        resp = "Request accepted (SDN mod)"  
+        return resp, True
+
         
         
         
             
-        self.accept_demand(request,path,h2[1],vni,src_ip,dst_ip,vm_traffic)  
-        self.request_id += 1    
-        resp = "Request accepted"  
-        return resp, True
+        
 
                     
         # self.queue_config.append(request)
@@ -1685,8 +1788,8 @@ class ProjectController(app_manager.RyuApp):
                             ip_proto=17,
                             ipv4_src=src_ip, 
                             ipv4_dst=dst_ip,
-                            udp_dst=6081,
-                            tunnel_id = int(vni)
+                            udp_dst=6081
+                            # tunnel_id = int(vni)
                             
                     )
             self.add_flow(datapath, 12, match_vni, actions,IDLE_TIMEOUT)
@@ -1734,7 +1837,9 @@ class ProjectController(app_manager.RyuApp):
         dst_port = h2[1]
         paths,pw = self.get_optimal_paths_qos(src, dst,h1[1],h2[1])
         self.logger.info("paths: %s\npw: %s" %(paths,pw))
-        if path not in paths:
+        if not path:
+            path = paths[0]
+        elif path not in paths:
             self.logger.info("Can`t find path: Path seem to be not correct")
             resp = "Can`t find path: Path seem to be not correct"
             return resp, False     
@@ -1821,6 +1926,7 @@ class ProjectController(app_manager.RyuApp):
         # self.FLAG = 1
         if dpid == 1 and self.change == True:
             self.logger.info("Table:%s", self.request_table)
+            self.logger.info("host_req:%s", self.host_request)
             self.change = False
 
 
@@ -1831,7 +1937,23 @@ class ProjectController(app_manager.RyuApp):
         #     # self.logger.info("RESERVE BW: %s"%self.sw_reserve_bw)
         #     self.logger.info("Sw RESERVE BW: %s"%self.sw_reserve_bw)       
         #     self.logger.info("Port RESERVE BW: %s"%self.port_reserve_bw)
-            
+    def get_topology_data(self): # In Topo
+        links_list = get_link(self.topology_api_app, None)
+        links=[(link.src.dpid,link.dst.dpid,{'port':link.src.port_no}) for link in links_list]
+        self.logger.info("------TOPOLOGY------")
+        self.logger.info("Switch: %s"%self.switches)
+        self.logger.info("Link: %s"%links)
+        self.logger.info("Combined: : %s"% self.adjacency)
+        # self.logger.info("HOST: : %s"% self.hosts)
+        
+        for i in self.switches:
+            self.logger.info("Switch %s:"% (i))
+            # self.logger.info("\tMAC: %s"% (self.get_host_from_dpid(i)))
+            self.logger.info("\tIP: %s"% (self.get_ip_from_dpid(i)))
+
+
+        self.logger.info("---------------------\n")
+       
               
     def replace_path(self,src,dst,p,pw):
         #1 switch connect to multiple host -> multiple IPs
