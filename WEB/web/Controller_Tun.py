@@ -44,8 +44,18 @@ import numpy as np
 # Cisco Reference bandwidth = 1 Gbps
 REFERENCE_BW = 1000000000
 
-
+# HFSC take almost 0.95 of link BW
+# DEFAULT_BW = int(1000000000/0.94)
+# DEFAULT_BW = 100000000
 DEFAULT_BW = 1000000000
+# DEFAULT_BW = 100000000
+
+
+# DEFAULT_BW = int(500000000/0.88)
+QUEUE_TYPE = 'linux-hfsc'
+
+# DEFAULT_TP = 1000000000
+
 MAX_PATHS = 10
 
 
@@ -139,11 +149,11 @@ class ProjectController(app_manager.RyuApp):
         self.del_qos_all(port)
         try:
             if self.queue_config[port]:
-                ovs_bridge.set_qos(port, type='linux-hfsc',
+                ovs_bridge.set_qos(port, type=QUEUE_TYPE,
                                         max_rate=str(DEFAULT_BW),
                                         queues=self.queue_config[port])
             else:
-                ovs_bridge.set_qos(port, type='linux-hfsc',
+                ovs_bridge.set_qos(port, type=QUEUE_TYPE,
                                         max_rate=str(DEFAULT_BW))
         except Exception as msg:
             raise ValueError(msg)
@@ -153,11 +163,11 @@ class ProjectController(app_manager.RyuApp):
         ovs_bridge = bridge.OVSBridge(self.CONF, dpid, ovsdb_server)
         try:
             if self.queue_config[port]:
-                ovs_bridge.set_qos(port, type='linux-hfsc',
+                ovs_bridge.set_qos(port, type=QUEUE_TYPE,
                                         max_rate=str(DEFAULT_BW),
                                         queues=self.queue_config[port])
             else:
-                ovs_bridge.set_qos(port, type='linux-hfsc',
+                ovs_bridge.set_qos(port, type=QUEUE_TYPE,
                                         max_rate=str(DEFAULT_BW))
         except Exception as msg:
             raise ValueError(msg)
@@ -1428,7 +1438,10 @@ class ProjectController(app_manager.RyuApp):
             min_rate_list = ['min_rate',request_mod["min-rate"]]
             config.append(min_rate_list)
         if request_mod.get("max-rate"):
-            max_rate_list = ['max_rate',request_mod["max-rate"]]
+            if int(request_mod["min-rate"]) > int(request_mod["max-rate"]):
+                max_rate_list = ['max_rate',request_mod["min-rate"]]
+            else:
+                max_rate_list = ['max_rate',request_mod["max-rate"]]
             config.append(max_rate_list)
 
         self.logger.info("configure: %s",config)
@@ -1525,7 +1538,7 @@ class ProjectController(app_manager.RyuApp):
 
         if request_id["min-rate"]:
             temp_min = min_rate + int(self.host_request[src_ip,dst_ip]['request']["min-rate"])
-            if temp_min < DEFAULT_BW:
+            if temp_min <= DEFAULT_BW:
                 self.host_request[src_ip,dst_ip]['request']["min-rate"] = str(temp_min)
             else:
                 reject_min = DEFAULT_BW - int(self.host_request[src_ip,dst_ip]['request']["min-rate"])
@@ -1533,7 +1546,7 @@ class ProjectController(app_manager.RyuApp):
                 return resp, False
         # else:
 
-
+        self.logger.info("MOD----------")
         
         for port,queue_id in request_id['queue_bind'].items():
             self.mod_request(port,queue_id,request_mod)
@@ -1608,7 +1621,7 @@ class ProjectController(app_manager.RyuApp):
         
         if request.get('max-rate'):
             
-            if int(request.get('max-rate'))*req_num > DEFAULT_BW:
+            if int(request.get('max-rate')) > DEFAULT_BW:
                 resp = "max-rate exceeds link bandwidth: \nThere are %d traffics bind to this demand" % req_num
                 self.logger.info(resp)
                 return resp, False
@@ -1675,9 +1688,9 @@ class ProjectController(app_manager.RyuApp):
 
         
         for avai_bw in pw[index]:
-            if avai_bw <= min_rate:
-                resp = "Reject: Minrate %s >= available bw: %s \
-                \n(demand was bind to %s traffic)" % (min_rate,avai_bw,req_num)
+            if avai_bw < min_rate:
+                resp = "Reject: Minrate %s > available bw: %s \
+                " % (min_rate,avai_bw)
                 self.logger.info(resp)
                 return resp, False
        
@@ -1711,10 +1724,14 @@ class ProjectController(app_manager.RyuApp):
             return resp, True
         
         # MOD REQ
-        if request.get("max-rate"):
-            if self.host_request[src_ip,dst_ip]['request']['max-rate'] <= request['max-rate']:
-                self.host_request[src_ip,dst_ip]['request']['max-rate'] = request['max-rate']
         temp_min = min_rate + int(self.host_request[src_ip,dst_ip]['request']["min-rate"])
+        if 'max-rate' not in self.host_request[src_ip,dst_ip]['request'].keys():
+            self.host_request[src_ip,dst_ip]['request']['max-rate'] = str(DEFAULT_BW)
+        # elif temp_min > int(self.host_request[src_ip,dst_ip]['request']['max-rate']):
+        #     self.host_request[src_ip,dst_ip]['request']['max-rate'] = str(temp_min)
+        # if request.get("max-rate"):
+        #     if int(self.host_request[src_ip,dst_ip]['request']['max-rate']) <= int(request['max-rate']):
+        #         self.host_request[src_ip,dst_ip]['request']['max-rate'] = request['max-rate']
         self.host_request[src_ip,dst_ip]['request']["min-rate"] = str(temp_min)
         for port,queue_id in self.host_request[src_ip,dst_ip]['queue_bind'].items():
             self.mod_request(port,queue_id,self.host_request[src_ip,dst_ip]['request'])
