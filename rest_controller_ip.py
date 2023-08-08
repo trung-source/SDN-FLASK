@@ -177,7 +177,7 @@ class SimpleSwitchRest13(Controller_Tun.ProjectController):
             if entry["vm_traffic"]:
                 vm_src = entry["vm_src"]
                 vm_dst = entry["vm_dst"]
-                if self.request_table[id]['vm_bind'] == (vm_src,vm_dst):
+                if self.request_table[id]['vm_bind'] != (vm_src,vm_dst):
                     continue
                 
             if self.request_table[id]['request'] == entry["request"]:
