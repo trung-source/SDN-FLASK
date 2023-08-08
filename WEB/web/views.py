@@ -78,8 +78,10 @@ def home():
         # max_rate = max_rate.replace(",", "")
         # min_rate = min_rate.replace(",", "")
         mod = request.form.get('modcheck_vm')
+        vni = (request.form.get('vni'))
 
-        resp,cond = source.put_demand_vm(src_ip,dst_ip,max_rate,min_rate,mod,virutal_topo)
+
+        resp,cond = source.put_demand_vm(src_ip,dst_ip,max_rate,min_rate,mod,virutal_topo,vni)
         if cond == False: 
             flash(resp, category = 'error')
             return render_template("home.html",switch_list = switch_list,host_list=host_list,
